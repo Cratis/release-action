@@ -3776,7 +3776,7 @@ exports.withCustomRequest = withCustomRequest;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-const VERSION = "2.16.0";
+const VERSION = "2.16.3";
 
 function ownKeys(object, enumerableOnly) {
   var keys = Object.keys(object);
@@ -5205,7 +5205,7 @@ const Endpoints = {
   }
 };
 
-const VERSION = "5.10.1";
+const VERSION = "5.10.4";
 
 function endpointsToMethods(octokit, endpointsMap) {
   const newMethods = {};
@@ -5581,10 +5581,9 @@ exports.request = request;
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
-var __webpack_unused_export__;
 
 
-__webpack_unused_export__ = ({ value: true });
+Object.defineProperty(exports, "__esModule", ({ value: true }));
 
 var core = __nccwpck_require__(6762);
 var pluginRequestLog = __nccwpck_require__(8883);
@@ -5597,7 +5596,7 @@ const Octokit = core.Octokit.plugin(pluginRequestLog.requestLog, pluginRestEndpo
   userAgent: `octokit-rest.js/${VERSION}`
 });
 
-exports.v = Octokit;
+exports.Octokit = Octokit;
 //# sourceMappingURL=index.js.map
 
 
@@ -23596,7 +23595,7 @@ function cmpTags(a, b) {
     return cmpArrays(tagSortKey(a), tagSortKey(b));
 }
 
-exports.U = cmpTags;
+exports.cmpTags = cmpTags;
 
 function tagSortKey(s) {
     let a = s.split(/([0-9]+)/);
@@ -30849,6 +30848,410 @@ try {
 
 /***/ }),
 
+/***/ 5431:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.prependToChangeLog = void 0;
+const path_1 = __importDefault(__nccwpck_require__(5622));
+const exec_1 = __nccwpck_require__(1514);
+const logging_1 = __nccwpck_require__(1938);
+const inputs_1 = __importDefault(__nccwpck_require__(6755));
+const prepend_file_1 = __importDefault(__nccwpck_require__(5924));
+const github_1 = __nccwpck_require__(5438);
+function prependToChangeLog(body, version, pullRequestNumber, pullRequestUrl) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const date = new Date(new Date().toUTCString());
+        const heading = `# [${version}] - ${date.getUTCFullYear()}-${date.getUTCMonth() + 1}-${date.getUTCDate()} [PR: #${pullRequestNumber}](${pullRequestUrl})`;
+        const combined = `${heading}\n\n${body}\n\n`;
+        yield (0, prepend_file_1.default)(inputs_1.default.path, combined);
+        yield configureUser();
+        yield commitChangelog(version);
+        yield pushChanges();
+    });
+}
+exports.prependToChangeLog = prependToChangeLog;
+function configureUser() {
+    return __awaiter(this, void 0, void 0, function* () {
+        logging_1.logger.info(`Configuring user with email '${inputs_1.default.userEmail}' and name '${inputs_1.default.userName}'`);
+        yield (0, exec_1.exec)('git config', [
+            'user.email',
+            `"${inputs_1.default.userEmail}"`
+        ], { ignoreReturnCode: true });
+        yield (0, exec_1.exec)('git config', [
+            'user.name',
+            `"${inputs_1.default.userName}"`
+        ], { ignoreReturnCode: true });
+    });
+}
+function commitChangelog(version) {
+    return __awaiter(this, void 0, void 0, function* () {
+        logging_1.logger.info(`Adding and committing ${inputs_1.default.path}`);
+        yield (0, exec_1.exec)('git add', [inputs_1.default.path], { ignoreReturnCode: true });
+        yield (0, exec_1.exec)('git commit', [
+            `-m "Add version ${version} to changelog"`
+        ], { ignoreReturnCode: true });
+    });
+}
+function pushChanges() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const branchName = path_1.default.basename(github_1.context.ref);
+        logging_1.logger.info(`Pushing changelog to origin ${branchName}`);
+        yield (0, exec_1.exec)(`git pull origin ${branchName}`, undefined, { ignoreReturnCode: true });
+        yield (0, exec_1.exec)(`git push origin ${branchName}`, undefined, { ignoreReturnCode: true });
+    });
+}
+
+
+/***/ }),
+
+/***/ 520:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const github_1 = __nccwpck_require__(5438);
+const rest_1 = __nccwpck_require__(5375);
+const logging_1 = __nccwpck_require__(1938);
+const changeLog_1 = __nccwpck_require__(5431);
+const inputs_1 = __importDefault(__nccwpck_require__(6755));
+const outputs_1 = __importDefault(__nccwpck_require__(7338));
+const version_1 = __nccwpck_require__(3025);
+const octokit = new rest_1.Octokit({ auth: inputs_1.default.gitHubToken });
+run();
+function run() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const pullRequest = yield getMergedPullRequest(github_1.context.repo.owner, github_1.context.repo.repo, github_1.context.sha);
+            if (!pullRequest) {
+                logging_1.logger.error('No merged PR found.');
+                return;
+            }
+            if (!pullRequest.labels || pullRequest.labels.length === 0) {
+                logging_1.logger.info('No release labels found.');
+                if (pullRequest.labels.length > 0) {
+                    logging_1.logger.info('Labels associated with PR:');
+                    pullRequest.labels.forEach(_ => logging_1.logger.info(`  - ${_}`));
+                }
+                outputs_1.default.setShouldPublish(false);
+                return;
+            }
+            const version = yield (0, version_1.getNextVersion)(octokit, pullRequest);
+            if (!version)
+                return;
+            logging_1.logger.info(`Create release for version '${version.version}'`);
+            // GitHub Create Release documentation: https://developer.github.com/v3/repos/releases/#create-a-release
+            // GitHub Octokit Create Release documentation: https://octokit.github.io/rest.js/v18#repos-create-release
+            const release = {
+                owner: github_1.context.repo.owner,
+                repo: github_1.context.repo.repo,
+                tag_name: `v${version.version}`,
+                name: `Release v${version.version}`,
+                body: pullRequest.body || '',
+                prerelease: false,
+                target_commitish: github_1.context.sha
+            };
+            logging_1.logger.info('Release object:');
+            logging_1.logger.info(release);
+            yield octokit.repos.createRelease(release);
+            logging_1.logger.info('GitHub release created');
+            yield (0, changeLog_1.prependToChangeLog)(pullRequest.body || '', `v${version.version}`, pullRequest.number, pullRequest.html_url);
+            logging_1.logger.info('Prepended to changelog');
+            outputs_1.default.setVersion(version.version);
+            outputs_1.default.setShouldPublish(true);
+        }
+        catch (ex) {
+            logging_1.logger.error("Something went wrong");
+            logging_1.logger.error(ex);
+            outputs_1.default.setShouldPublish(false);
+        }
+    });
+}
+function getMergedPullRequest(owner, repo, sha) {
+    return __awaiter(this, void 0, void 0, function* () {
+        logging_1.logger.debug(`Getting merged pull request for: '${sha}''`);
+        const mergedPullRequest = yield octokit.paginate(octokit.pulls.list, { owner, repo, state: 'closed', sort: 'updated', direction: 'desc' }).then(data => data.find(pr => pr.merge_commit_sha === sha));
+        return mergedPullRequest;
+    });
+}
+
+
+/***/ }),
+
+/***/ 6755:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const core_1 = __nccwpck_require__(2186);
+const path = (0, core_1.getInput)('path') || 'CHANGELOG.md';
+const userName = (0, core_1.getInput)('user-name', { required: true }) || '';
+const userEmail = (0, core_1.getInput)('user-email', { required: true }) || '';
+const gitHubToken = (0, core_1.getInput)('github-token') || null;
+exports.default = {
+    path,
+    userName,
+    userEmail,
+    gitHubToken
+};
+
+
+/***/ }),
+
+/***/ 1938:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.logger = void 0;
+const winston_1 = __nccwpck_require__(4158);
+const loggerOptions = {
+    level: 'info',
+    format: winston_1.format.colorize(),
+    transports: [
+        new winston_1.transports.Console({
+            format: winston_1.format.simple()
+        })
+    ]
+};
+const logger = (0, winston_1.createLogger)(loggerOptions);
+exports.logger = logger;
+
+
+/***/ }),
+
+/***/ 7338:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const core_1 = __nccwpck_require__(2186);
+exports.default = {
+    setVersion(value) {
+        (0, core_1.setOutput)('version', value);
+    },
+    setShouldPublish(value) {
+        (0, core_1.setOutput)('should-publish', value);
+    }
+};
+
+
+/***/ }),
+
+/***/ 7061:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __asyncValues = (this && this.__asyncValues) || function (o) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var m = o[Symbol.asyncIterator], i;
+    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
+    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
+    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
+};
+var __await = (this && this.__await) || function (v) { return this instanceof __await ? (this.v = v, this) : new __await(v); }
+var __asyncGenerator = (this && this.__asyncGenerator) || function (thisArg, _arguments, generator) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var g = generator.apply(thisArg, _arguments || []), i, q = [];
+    return i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i;
+    function verb(n) { if (g[n]) i[n] = function (v) { return new Promise(function (a, b) { q.push([n, v, a, b]) > 1 || resume(n, v); }); }; }
+    function resume(n, v) { try { step(g[n](v)); } catch (e) { settle(q[0][3], e); } }
+    function step(r) { r.value instanceof __await ? Promise.resolve(r.value.v).then(fulfill, reject) : settle(q[0][2], r); }
+    function fulfill(value) { resume("next", value); }
+    function reject(value) { resume("throw", value); }
+    function settle(f, v) { if (f(v), q.shift(), q.length) resume(q[0][0], q[0][1]); }
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getLatestTag = void 0;
+const tag_cmp_1 = __nccwpck_require__(1710);
+const logging_1 = __nccwpck_require__(1938);
+// Based on : https://github.com/oprypin/find-latest-tag
+function getLatestTag(octokit, owner, repo, releasesOnly, prefix, regex, sortTags) {
+    var e_1, _a;
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const endpoint = (releasesOnly ? octokit.repos.listReleases : octokit.repos.listTags);
+            const pages = endpoint.endpoint.merge({ "owner": owner, "repo": repo, "per_page": 100 });
+            const tags = [];
+            try {
+                for (var _b = __asyncValues(getItemsFromPages(octokit, pages)), _c; _c = yield _b.next(), !_c.done;) {
+                    const item = _c.value;
+                    const tag = (releasesOnly ? item["tag_name"] : item["name"]);
+                    if (!tag.startsWith(prefix)) {
+                        continue;
+                    }
+                    if (regex && !new RegExp(regex).test(tag)) {
+                        continue;
+                    }
+                    if (!sortTags) {
+                        // Assume that the API returns the most recent tag(s) first.
+                        return tag;
+                    }
+                    tags.push(tag);
+                }
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
+            if (tags.length === 0) {
+                let error = `The repository "${owner}/${repo}" has no `;
+                error += releasesOnly ? "releases" : "tags";
+                if (prefix) {
+                    error += ` matching "${prefix}*"`;
+                }
+                throw error;
+            }
+            tags.sort(tag_cmp_1.cmpTags);
+            const [latestTag] = tags.slice(-1);
+            return latestTag;
+        }
+        catch (ex) {
+            logging_1.logger.error(`Couldn't get latest tag`);
+            logging_1.logger.error(ex);
+            return '';
+        }
+    });
+}
+exports.getLatestTag = getLatestTag;
+function getItemsFromPages(octokit, pages) {
+    return __asyncGenerator(this, arguments, function* getItemsFromPages_1() {
+        var e_2, _a;
+        try {
+            for (var _b = __asyncValues(octokit.paginate.iterator(pages)), _c; _c = yield __await(_b.next()), !_c.done;) {
+                const page = _c.value;
+                for (const item of page.data) {
+                    yield yield __await(item);
+                }
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) yield __await(_a.call(_b));
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+    });
+}
+
+
+/***/ }),
+
+/***/ 3025:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getNextVersion = void 0;
+const semver_1 = __importDefault(__nccwpck_require__(1383));
+const logging_1 = __nccwpck_require__(1938);
+const tags_1 = __nccwpck_require__(7061);
+const github_1 = __nccwpck_require__(5438);
+function getNextVersion(octokit, pullRequest) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let isMinor = false;
+        let isPatch = false;
+        const isMajor = pullRequest.labels.some(_ => _.name === 'major');
+        if (!isMajor) {
+            isMinor = pullRequest.labels.some(_ => _.name === 'minor');
+            if (!isMinor) {
+                isPatch = pullRequest.labels.some(_ => _.name === 'patch');
+            }
+        }
+        if (!isMajor && !isMinor && !isPatch) {
+            logging_1.logger.info('No release related labels associated with the PR.');
+            if (pullRequest.labels.length > 0) {
+                logging_1.logger.info('Labels associated with PR:');
+                pullRequest.labels.forEach(_ => logging_1.logger.info(`  - ${_.name}`));
+            }
+            return;
+        }
+        let latestTag = yield (0, tags_1.getLatestTag)(octokit, github_1.context.repo.owner, github_1.context.repo.repo, true, 'v', '', true);
+        if (latestTag.toLowerCase().startsWith('v')) {
+            latestTag = latestTag.substr(1);
+        }
+        else {
+            latestTag = 'v0.0.0';
+            logging_1.logger.info('No valid version found in tags - setting to v0.0.0');
+        }
+        logging_1.logger.info(`Latest tag: ${latestTag}`);
+        let version = semver_1.default.parse(latestTag);
+        if (!version) {
+            logging_1.logger.error(`Version string '${latestTag}' is not in a valid format`);
+            return;
+        }
+        if (isMajor)
+            version = version.inc('major') || version;
+        if (isMinor)
+            version = version.inc('minor') || version;
+        if (isPatch)
+            version = version.inc('patch') || version;
+        logging_1.logger.info(`New version is '${version.version}''`);
+        return version;
+    });
+}
+exports.getNextVersion = getNextVersion;
+
+
+/***/ }),
+
 /***/ 2877:
 /***/ ((module) => {
 
@@ -31058,318 +31461,17 @@ module.exports = require("zlib");
 /******/ 	}
 /******/ 	
 /************************************************************************/
-/******/ 	/* webpack/runtime/compat get default export */
-/******/ 	(() => {
-/******/ 		// getDefaultExport function for compatibility with non-harmony modules
-/******/ 		__nccwpck_require__.n = (module) => {
-/******/ 			var getter = module && module.__esModule ?
-/******/ 				() => (module['default']) :
-/******/ 				() => (module);
-/******/ 			__nccwpck_require__.d(getter, { a: getter });
-/******/ 			return getter;
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/define property getters */
-/******/ 	(() => {
-/******/ 		// define getter functions for harmony exports
-/******/ 		__nccwpck_require__.d = (exports, definition) => {
-/******/ 			for(var key in definition) {
-/******/ 				if(__nccwpck_require__.o(definition, key) && !__nccwpck_require__.o(exports, key)) {
-/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
-/******/ 				}
-/******/ 			}
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
-/******/ 	(() => {
-/******/ 		__nccwpck_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/make namespace object */
-/******/ 	(() => {
-/******/ 		// define __esModule on exports
-/******/ 		__nccwpck_require__.r = (exports) => {
-/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
-/******/ 			}
-/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
-/******/ 		};
-/******/ 	})();
-/******/ 	
 /******/ 	/* webpack/runtime/compat */
 /******/ 	
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";
 /******/ 	
 /************************************************************************/
-var __webpack_exports__ = {};
-// This entry need to be wrapped in an IIFE because it need to be in strict mode.
-(() => {
-"use strict";
-// ESM COMPAT FLAG
-__nccwpck_require__.r(__webpack_exports__);
-
-// EXTERNAL MODULE: ./node_modules/@actions/github/lib/github.js
-var github = __nccwpck_require__(5438);
-// EXTERNAL MODULE: ./node_modules/@octokit/rest/dist-node/index.js
-var dist_node = __nccwpck_require__(5375);
-// EXTERNAL MODULE: ./node_modules/winston/lib/winston.js
-var winston = __nccwpck_require__(4158);
-;// CONCATENATED MODULE: ./Source/logging.ts
-
-const loggerOptions = {
-    level: 'info',
-    format: winston.format.colorize(),
-    transports: [
-        new winston.transports.Console({
-            format: winston.format.simple()
-        })
-    ]
-};
-const logger = (0,winston.createLogger)(loggerOptions);
-
-
-// EXTERNAL MODULE: external "path"
-var external_path_ = __nccwpck_require__(5622);
-var external_path_default = /*#__PURE__*/__nccwpck_require__.n(external_path_);
-// EXTERNAL MODULE: ./node_modules/@actions/exec/lib/exec.js
-var exec = __nccwpck_require__(1514);
-// EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
-var core = __nccwpck_require__(2186);
-;// CONCATENATED MODULE: ./Source/inputs.ts
-
-const path = (0,core.getInput)('path') || 'CHANGELOG.md';
-const userName = (0,core.getInput)('user-name', { required: true }) || '';
-const userEmail = (0,core.getInput)('user-email', { required: true }) || '';
-const gitHubToken = (0,core.getInput)('github-token') || null;
-/* harmony default export */ const inputs = ({
-    path,
-    userName,
-    userEmail,
-    gitHubToken
-});
-
-// EXTERNAL MODULE: ./node_modules/prepend-file/index.js
-var prepend_file = __nccwpck_require__(5924);
-var prepend_file_default = /*#__PURE__*/__nccwpck_require__.n(prepend_file);
-;// CONCATENATED MODULE: ./Source/changeLog.ts
-
-
-
-
-
-
-async function prependToChangeLog(body, version, pullRequestNumber, pullRequestUrl) {
-    const date = new Date(new Date().toUTCString());
-    const heading = `# [${version}] - ${date.getUTCFullYear()}-${date.getUTCMonth() + 1}-${date.getUTCDate()} [PR: #${pullRequestNumber}](${pullRequestUrl})`;
-    const combined = `${heading}\n\n${body}\n\n`;
-    await prepend_file_default()(inputs.path, combined);
-    await configureUser();
-    await commitChangelog(version);
-    await pushChanges();
-}
-async function configureUser() {
-    logger.info(`Configuring user with email '${inputs.userEmail}' and name '${inputs.userName}'`);
-    await (0,exec.exec)('git config', [
-        'user.email',
-        `"${inputs.userEmail}"`
-    ], { ignoreReturnCode: true });
-    await (0,exec.exec)('git config', [
-        'user.name',
-        `"${inputs.userName}"`
-    ], { ignoreReturnCode: true });
-}
-async function commitChangelog(version) {
-    logger.info(`Adding and committing ${inputs.path}`);
-    await (0,exec.exec)('git add', [inputs.path], { ignoreReturnCode: true });
-    await (0,exec.exec)('git commit', [
-        `-m "Add version ${version} to changelog"`
-    ], { ignoreReturnCode: true });
-}
-async function pushChanges() {
-    const branchName = external_path_default().basename(github.context.ref);
-    logger.info(`Pushing changelog to origin ${branchName}`);
-    await (0,exec.exec)(`git pull origin ${branchName}`, undefined, { ignoreReturnCode: true });
-    await (0,exec.exec)(`git push origin ${branchName}`, undefined, { ignoreReturnCode: true });
-}
-
-;// CONCATENATED MODULE: ./Source/outputs.ts
-
-/* harmony default export */ const outputs = ({
-    setVersion(value) {
-        (0,core.setOutput)('version', value);
-    },
-    setShouldPublish(value) {
-        (0,core.setOutput)('should-publish', value);
-    }
-});
-
-// EXTERNAL MODULE: ./node_modules/semver/index.js
-var semver = __nccwpck_require__(1383);
-var semver_default = /*#__PURE__*/__nccwpck_require__.n(semver);
-// EXTERNAL MODULE: ./node_modules/tag-cmp/tags.js
-var tag_cmp_tags = __nccwpck_require__(1710);
-;// CONCATENATED MODULE: ./Source/tags.ts
-
-
-// Based on : https://github.com/oprypin/find-latest-tag
-async function getLatestTag(octokit, owner, repo, releasesOnly, prefix, regex, sortTags) {
-    try {
-        const endpoint = (releasesOnly ? octokit.repos.listReleases : octokit.repos.listTags);
-        const pages = endpoint.endpoint.merge({ "owner": owner, "repo": repo, "per_page": 100 });
-        const tags = [];
-        for await (const item of getItemsFromPages(octokit, pages)) {
-            const tag = (releasesOnly ? item["tag_name"] : item["name"]);
-            if (!tag.startsWith(prefix)) {
-                continue;
-            }
-            if (regex && !new RegExp(regex).test(tag)) {
-                continue;
-            }
-            if (!sortTags) {
-                // Assume that the API returns the most recent tag(s) first.
-                return tag;
-            }
-            tags.push(tag);
-        }
-        if (tags.length === 0) {
-            let error = `The repository "${owner}/${repo}" has no `;
-            error += releasesOnly ? "releases" : "tags";
-            if (prefix) {
-                error += ` matching "${prefix}*"`;
-            }
-            throw error;
-        }
-        tags.sort(tag_cmp_tags/* cmpTags */.U);
-        const [latestTag] = tags.slice(-1);
-        return latestTag;
-    }
-    catch (ex) {
-        logger.error(`Couldn't get latest tag`);
-        logger.error(ex);
-        return '';
-    }
-}
-async function* getItemsFromPages(octokit, pages) {
-    for await (const page of octokit.paginate.iterator(pages)) {
-        for (const item of page.data) {
-            yield item;
-        }
-    }
-}
-
-;// CONCATENATED MODULE: ./Source/version.ts
-
-
-
-
-async function getNextVersion(octokit, pullRequest) {
-    let isMinor = false;
-    let isPatch = false;
-    const isMajor = pullRequest.labels.some(_ => _.name === 'major');
-    if (!isMajor) {
-        isMinor = pullRequest.labels.some(_ => _.name === 'minor');
-        if (!isMinor) {
-            isPatch = pullRequest.labels.some(_ => _.name === 'patch');
-        }
-    }
-    if (!isMajor && !isMinor && !isPatch) {
-        logger.info('No release related labels associated with the PR.');
-        if (pullRequest.labels.length > 0) {
-            logger.info('Labels associated with PR:');
-            pullRequest.labels.forEach(_ => logger.info(`  - ${_.name}`));
-        }
-        return;
-    }
-    let latestTag = await getLatestTag(octokit, github.context.repo.owner, github.context.repo.repo, true, 'v', '', true);
-    if (latestTag.toLowerCase().startsWith('v')) {
-        latestTag = latestTag.substr(1);
-    }
-    else {
-        latestTag = 'v0.0.0';
-        logger.info('No valid version found in tags - setting to v0.0.0');
-    }
-    logger.info(`Latest tag: ${latestTag}`);
-    let version = semver_default().parse(latestTag);
-    if (!version) {
-        logger.error(`Version string '${latestTag}' is not in a valid format`);
-        return;
-    }
-    if (isMajor)
-        version = version.inc('major') || version;
-    if (isMinor)
-        version = version.inc('minor') || version;
-    if (isPatch)
-        version = version.inc('patch') || version;
-    logger.info(`New version is '${version.version}''`);
-    return version;
-}
-
-;// CONCATENATED MODULE: ./Source/index.ts
-
-
-
-
-
-
-
-const octokit = new dist_node/* Octokit */.v({ auth: inputs.gitHubToken });
-run();
-async function run() {
-    try {
-        const pullRequest = await getMergedPullRequest(github.context.repo.owner, github.context.repo.repo, github.context.sha);
-        if (!pullRequest) {
-            logger.error('No merged PR found.');
-            return;
-        }
-        if (!pullRequest.labels || pullRequest.labels.length === 0) {
-            logger.info('No release labels found.');
-            if (pullRequest.labels.length > 0) {
-                logger.info('Labels associated with PR:');
-                pullRequest.labels.forEach(_ => logger.info(`  - ${_}`));
-            }
-            outputs.setShouldPublish(false);
-            return;
-        }
-        const version = await getNextVersion(octokit, pullRequest);
-        if (!version)
-            return;
-        logger.info(`Create release for version '${version.version}'`);
-        // GitHub Create Release documentation: https://developer.github.com/v3/repos/releases/#create-a-release
-        // GitHub Octokit Create Release documentation: https://octokit.github.io/rest.js/v18#repos-create-release
-        const release = {
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            tag_name: `v${version.version}`,
-            name: `Release v${version.version}`,
-            body: pullRequest.body || '',
-            prerelease: false,
-            target_commitish: github.context.sha
-        };
-        logger.info('Release object:');
-        logger.info(release);
-        await octokit.repos.createRelease(release);
-        logger.info('GitHub release created');
-        await prependToChangeLog(pullRequest.body || '', `v${version.version}`, pullRequest.number, pullRequest.html_url);
-        logger.info('Prepended to changelog');
-        outputs.setVersion(version.version);
-        outputs.setShouldPublish(true);
-    }
-    catch (ex) {
-        logger.error("Something went wrong");
-        logger.error(ex);
-        outputs.setShouldPublish(false);
-    }
-}
-async function getMergedPullRequest(owner, repo, sha) {
-    logger.debug(`Getting merged pull request for: '${sha}''`);
-    const mergedPullRequest = await octokit.paginate(octokit.pulls.list, { owner, repo, state: 'closed', sort: 'updated', direction: 'desc' }).then(data => data.find(pr => pr.merge_commit_sha === sha));
-    return mergedPullRequest;
-}
-
-})();
-
-module.exports = __webpack_exports__;
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __nccwpck_require__(520);
+/******/ 	module.exports = __webpack_exports__;
+/******/ 	
 /******/ })()
 ;

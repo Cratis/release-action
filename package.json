@@ -2,7 +2,7 @@
   "name": "release-action",
   "version": "1.0.0",
   "description": "",
-  "author": "Aksio",
+  "author": "Cratis",
   "main": "dist/index.js",
   "license": "MIT",
   "scripts": {

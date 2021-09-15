@@ -1,7 +1,7 @@
 # Release Action
 
 This is a [composite action](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action) to encapsulate
-a standard way to do release, tailored for the needs we have at Aksio.
+a standard way to do release, tailored for the needs we have for Cratis.
 
 ## What does it do
 
@@ -55,10 +55,10 @@ jobs:
 
       - name: Release
         id: release
-        uses: aksio-system/release-action@v1
+        uses: cratis/release-action@v1
         with:
-          user-name: 'Aksio Build'
-          user-email: 'build@aksio.no'
+          user-name: 'Cratis Build'
+          user-email: 'build@cratis.no'
 
       - name: Remove any existing artifacts
         run: rm -rf ${{ env.NUGET_OUTPUT }}
