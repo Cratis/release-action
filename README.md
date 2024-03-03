@@ -21,7 +21,6 @@ It runs the following steps:
 
 * Establishes the context by looking at the GitHub context in which the action is running in. Decides if this is a publishable build.
 * Increments the version by looking at the latest version tag of the repository and increases according to what the context decided the build type was.
-* Prepends to the CHANGELOG.md file in the repository with the content of the description.
 * Releases a snapshot of the source code to GitHub releases with the calculated version number.
 
 ## Usage
@@ -76,9 +75,6 @@ jobs:
 
 | Property | Description | Default value | Required |
 | -------- | ----------- | ------------- | -------- |
-| path | Relative path in repository to the changelog. | CHANGELOG.md | - |
-| user-name | UserName to use for any Git actions, such as commit of the changelog | | X |
-| user-email | Email to associate with the UserName for any Git actions, such as commit of the changelog | | X |
 | github-token | The GitHub token to use for any GitHub actions | ${{ secrets.GITHUB_TOKEN }} | - |
 
 ## Outputs

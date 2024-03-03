@@ -3,7 +3,6 @@ import { Octokit } from '@octokit/rest';
 
 import { logger } from './logging';
 
-import { prependToChangeLog } from './changeLog';
 import inputs from './inputs';
 import outputs from './outputs';
 import { getNextVersion } from './version';
@@ -53,10 +52,6 @@ async function run() {
         await octokit.repos.createRelease(release);
 
         logger.info('GitHub release created');
-
-        await prependToChangeLog(pullRequest.body || '', `v${version.version}`, pullRequest.number, pullRequest.html_url);
-
-        logger.info('Prepended to changelog');
 
         outputs.setVersion(version.version);
         outputs.setShouldPublish(true);

@@ -1,19 +1,7 @@
 name: "Release"
-description: "Calculates a new version number based on PR labels. Creates a changelog entry based on content of PR description. Packages the repository up and puts GitHub release."
+description: "Calculates a new version number based on PR labels."
 
 inputs:
-  path:
-    description: "Relative path to the changelog file. Defaults to 'CHANGELOG.md'"
-    required: false
-    default: "CHANGELOG.md"
-  user-name:
-    description: "UserName to use when committing changelog and other git actions."
-    required: true
-    default: ""
-  user-email:
-    description: "Email to use for the user when committing changelog and other git actions."
-    required: true
-    default: ""
   github-token:
     description: "GitHub token to use within the action when it is performing writing. Defaults to the GITHUB_TOKEN."
     required: false
