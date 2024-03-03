@@ -1,18 +1,32 @@
 name: "Release"
-description: "Calculates a new version number based on PR labels."
+description: "Generates a new version number based on PR labels. Packages the repository up and puts GitHub release."
 
 inputs:
   github-token:
     description: "GitHub token to use within the action when it is performing writing. Defaults to the GITHUB_TOKEN."
     required: false
     default: ${{ github.token }}
+  version:
+    description: "Version number to use when creating the release. If there is a value and the value is not an empty string, it will override the logic of deducting the version number based on tags on the PR."
+    required: false
+    default: ""
+  release-notes:
+    description: "Release notes to use when creating the release."
+    required: false
+    default: ""
 
 outputs:
   should-publish:
-    description: "Whether or not a publish should be done"
+    description: "Boolean telling whether or not a publish should be done"
   version:
-    description: " Version number to publish with"
+    description: "Version number to publish with"
+  prerelease:
+    description: "Boolean telling whether or not it is a prerelease"
+  isolated-for-pull-request:
+    description: "Boolean telling whether or not it should be an isolated release for the pull request only"
 
 runs:
-  using: "node12"
-  main: "dist/index.js"
+  using: "node16"
+  main: "dist/HandleVersion/index.js"
+  post: "dist/HandleRelease/index.js"
+  post-if: "success()"

@@ -6,11 +6,11 @@
             "es6"
         ],
         "rootDir": "./Source",
-        "outDir": "dist",
-        "declaration": true,
-        "declarationMap": true,
-        "sourceMap": true,
-        "composite": true,
+        "outDir": "./dist",
+        // "declaration": true,
+        // "declarationMap": true,
+        // "sourceMap": true,
+        // "composite": true,
         "strict": true,
         "allowJs": false,
         "checkJs": false,
@@ -19,7 +19,6 @@
         "noImplicitAny": false,
         "skipLibCheck": true,
         "moduleResolution": "node",
-        "jsx": "react-jsx",
         "esModuleInterop": true,
         "strictNullChecks": true,
         "resolveJsonModule": true,
@@ -38,6 +37,7 @@
         "newLine": "lf"
     },
     "exclude": [
-        "**/dist"
+        "**/dist",
+        "node_modules"
     ]
 }

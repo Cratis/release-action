@@ -1,7 +1,6 @@
 # Release Action
 
-This is a [composite action](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action) to encapsulate
-a standard way to do release, tailored for the needs we have for Cratis.
+This GitHub action handles versioning and releasing to GitHub releases.
 
 ## What does it do
 
@@ -15,12 +14,32 @@ one of the following labels adhering to [semantic versioning version 2](https://
 | Patch | Bug fixes |
 
 If none of these labels are present, it doesn't consider this to be a release and will not produce a GitHub release and returns
-the property of `should-publish` with `false`.
+the property of `should-publish` with `false`. This condition is only valid for a **closed** GitHub event.
 
-It runs the following steps:
+In addition it will look at the branch ref the pull request lives in. If the branch name is a semantic version number, it will use this as the
+basis for a version number and generate a prerelease version number based on the PR number and the sha of the commit:
+
+<major>.<minor>.<patch>-PR<number>.<short sha>.
+
+Similar if the target branch has a name that is a semantic version number, it will use this to form a prerelease version number.
+The output property `isolated-for-pull-request` will be set to true.
+
+It will only generate a valid `PR` pre-release if the pull request is in draft. If the pull request is not in draft the `should-publish` will be
+set to `false` and there will be no version info in the `version` output.
+
+If any of the branch names happen to be a semantic version number with a prerelease included in it, it will produce a version number
+based on the full version and just adding the short sha of the commit at the end. In this case the output property `isolated-for-pull-request` will be set to false.
+
+This behavior can be useful for building artifacts that is linked to a pull request and one wants to test them out before they are actually
+merged down to the target branch.
+
+The action is running a **main** stage and a post stage. The **main** stage runs the following steps.
 
 * Establishes the context by looking at the GitHub context in which the action is running in. Decides if this is a publishable build.
 * Increments the version by looking at the latest version tag of the repository and increases according to what the context decided the build type was.
+
+The post stage is only running if successful and runs the following steps:
+
 * Releases a snapshot of the source code to GitHub releases with the calculated version number.
 
 ## Usage
@@ -43,7 +62,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Setup .Net
         uses: actions/setup-dotnet@v1
@@ -54,10 +73,10 @@ jobs:
 
       - name: Release
         id: release
-        uses: cratis/release-action@v1
+        uses: aksio-system/release-action@v1
         with:
-          user-name: 'Cratis Build'
-          user-email: 'build@cratis.no'
+          user-name: 'Aksio Build'
+          user-email: 'build@aksio.no'
 
       - name: Remove any existing artifacts
         run: rm -rf ${{ env.NUGET_OUTPUT }}
@@ -76,10 +95,14 @@ jobs:
 | Property | Description | Default value | Required |
 | -------- | ----------- | ------------- | -------- |
 | github-token | The GitHub token to use for any GitHub actions | ${{ secrets.GITHUB_TOKEN }} | - |
+| version | Version number to use when creating the release. If there is a value and the value is not an empty string, it will override the logic of deducting the version number based on tags on the PR. |
+| release-notes | Release notes to use when creating the release. |
 
 ## Outputs
 
 | Property | Description |
 | -------- | ----------- |
-| should-publish | Whether or not a publish should be done |
+| should-publish | Boolean telling whether or not a publish should be done |
 | version | Version number to publish with |
+| prerelease | Boolean telling whether or not a it is a prerelease |
+| isolated-for-pull-request | Boolean telling whether or not it should be an isolated release for the pull request only |
