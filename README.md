@@ -73,10 +73,10 @@ jobs:
 
       - name: Release
         id: release
-        uses: aksio-system/release-action@v1
+        uses: cratis/release-action@v1
         with:
-          user-name: 'Aksio Build'
-          user-email: 'build@aksio.no'
+          version: 'Optional SemVer'
+          release-notes: 'Optional descriptive release notes'
 
       - name: Remove any existing artifacts
         run: rm -rf ${{ env.NUGET_OUTPUT }}
@@ -95,8 +95,8 @@ jobs:
 | Property | Description | Default value | Required |
 | -------- | ----------- | ------------- | -------- |
 | github-token | The GitHub token to use for any GitHub actions | ${{ secrets.GITHUB_TOKEN }} | - |
-| version | Version number to use when creating the release. If there is a value and the value is not an empty string, it will override the logic of deducting the version number based on tags on the PR. |
-| release-notes | Release notes to use when creating the release. |
+| version | Version number to use when creating the release. If there is a value and the value is not an empty string, it will override the logic of deducting the version number based on tags on the PR. | | - |
+| release-notes | Release notes to use when creating the release. |  | - |
 
 ## Outputs
 
