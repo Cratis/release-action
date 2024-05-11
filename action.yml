@@ -26,7 +26,7 @@ outputs:
     description: "Boolean telling whether or not it should be an isolated release for the pull request only"
 
 runs:
-  using: "node16"
+  using: "node20"
   main: "dist/HandleVersion/index.js"
   post: "dist/HandleRelease/index.js"
   post-if: "success()"

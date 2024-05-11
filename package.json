@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "license": "MIT",
   "engines": {
-    "node": ">= 16"
+    "node": ">= 20"
   },
   "scripts": {
     "build": "ncc build -o dist/HandleVersion ./Source/HandleVersion.ts && ncc build -o dist/HandleRelease ./Source/HandleRelease.ts",
