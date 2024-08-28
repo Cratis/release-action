@@ -44,7 +44,7 @@
     "@octokit/rest": "19.0.4",
     "prepend-file": "2.0.1",
     "tag-cmp": "1.0.1",
-    "ts-node": "10.9.1",
+    "ts-node": "10.9.2",
     "winston": "3.8.2",
     "mocha": "10.0.0",
     "sinon": "14.0.1",
