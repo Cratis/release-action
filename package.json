@@ -25,7 +25,7 @@
     "@vercel/ncc": "0.34.0",
     "eslint": "8.25.0",
     "eslint-config-prettier": "8.5.0",
-    "eslint-plugin-import": "2.26.0",
+    "eslint-plugin-import": "2.31.0",
     "eslint-plugin-no-null": "1.0.2",
     "eslint-plugin-prettier": "4.2.1",
     "semver": "7.3.8",
