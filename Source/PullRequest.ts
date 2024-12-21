@@ -6,6 +6,10 @@ export type Branch = {
     ref: string
 };
 
+export type Actor = {
+    login: string;
+}
+
 export type PullRequest = {
     labels: Label[];
     body: string | null;
@@ -16,4 +20,5 @@ export type PullRequest = {
     head: Branch;
     state: string;
     draft?: boolean;
+    author?: Actor;
 };

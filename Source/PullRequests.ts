@@ -1,6 +1,5 @@
 import { Context } from '@actions/github/lib/context';
 import { Octokit } from '@octokit/rest';
-import { pathToFileURL } from 'url';
 import winston from 'winston';
 import { IPullRequests } from './IPullRequests';
 import { PullRequest } from './PullRequest';

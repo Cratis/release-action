@@ -1,8 +1,6 @@
 import { context } from '@actions/github';
 import { Octokit } from '@octokit/rest';
-
 import { logger } from './logging';
-
 import inputs from './inputs';
 import outputs from './outputs';
 import { IPullRequests } from './IPullRequests';
@@ -37,6 +35,12 @@ export class HandleVersion {
                         return;
                     }
                 }
+
+                if( pullRequest.author?.login.indexOf('dependabot') !== -1) {
+                    outputs.setShouldPublish(false);
+                    return;
+                }
+
                 if (!pullRequest.labels || pullRequest.labels.length === 0) {
                     logger.info('No release labels found.');
                     if (pullRequest.labels.length > 0) {
@@ -66,6 +70,14 @@ export class HandleVersion {
     }
 }
 
-new HandleVersion(
+const handleVersion = new HandleVersion(
     new PullRequests(octokit, context, logger),
-    new Versions(octokit, context, new Tags(octokit, context, logger), logger)).run();
+    new Versions(octokit, context, new Tags(octokit, context, logger), logger));
+
+handleVersion.run();
+
+export async function run(): Promise<void> {
+    await handleVersion.run();
+}
+
+
