@@ -52648,6 +52648,7 @@ class HandleRelease {
         this._versions = _versions;
     }
     run() {
+        var _a;
         return __awaiter(this, void 0, void 0, function* () {
             let pullRequest;
             let version;
@@ -52661,6 +52662,10 @@ class HandleRelease {
                 releaseNotes = pullRequest.body || '';
                 associatedNumber = pullRequest.number;
                 associatedLink = pullRequest.html_url;
+                if (((_a = pullRequest.author) === null || _a === void 0 ? void 0 : _a.login.indexOf('dependabot')) !== -1) {
+                    logging_1.logger.info('Dependabot PR detected. Skipping release creation.');
+                    return;
+                }
                 version = yield this._versions.getNextVersionFor(pullRequest);
                 if (!version || version.isPrerelease || !version.version)
                     return;

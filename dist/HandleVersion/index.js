@@ -52666,6 +52666,7 @@ class HandleVersion {
                         }
                     }
                     if (((_a = pullRequest.author) === null || _a === void 0 ? void 0 : _a.login.indexOf('dependabot')) !== -1) {
+                        logging_1.logger.info('Dependabot PR detected. Skipping version creation.');
                         outputs_1.default.setShouldPublish(false);
                         return;
                     }

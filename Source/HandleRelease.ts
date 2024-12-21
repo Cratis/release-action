@@ -35,6 +35,11 @@ export class HandleRelease {
             associatedNumber = pullRequest.number;
             associatedLink = pullRequest.html_url;
 
+            if( pullRequest.author?.login.indexOf('dependabot') !== -1) {
+                logger.info('Dependabot PR detected. Skipping release creation.');
+                return;
+            }
+
             version = await this._versions.getNextVersionFor(pullRequest);
             if (!version || version.isPrerelease || !version.version) return;
         } else {
