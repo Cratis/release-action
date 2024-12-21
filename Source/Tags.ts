@@ -1,6 +1,5 @@
 import { Octokit } from '@octokit/rest';
 import { cmpTags } from 'tag-cmp';
-import { logger } from './logging';
 import winston from 'winston';
 import { ITags } from './ITags';
 import { Context } from '@actions/github/lib/context';
@@ -16,7 +15,7 @@ export class Tags implements ITags {
             const repo = this._context.repo.repo;
 
             const endpoint = (releasesOnly ? this._octokit.repos.listReleases : this._octokit.repos.listTags);
-            const pages = endpoint.endpoint.merge({ "owner": owner, "repo": repo, "per_page": 100 }) as any;
+            const pages = endpoint.endpoint.merge({ "owner": owner, "repo": repo, "per_page": 100 });
 
             const tags: string[] = [];
             for await (const item of this.getItemsFromPages(this._octokit, pages)) {
