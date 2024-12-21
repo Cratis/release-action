@@ -16,7 +16,7 @@ export class Tags implements ITags {
             const repo = this._context.repo.repo;
 
             const endpoint = (releasesOnly ? this._octokit.repos.listReleases : this._octokit.repos.listTags);
-            const pages = endpoint.endpoint.merge({ "owner": owner, "repo": repo, "per_page": 100 });
+            const pages = endpoint.endpoint.merge({ "owner": owner, "repo": repo, "per_page": 100 }) as any;
 
             const tags: string[] = [];
             for await (const item of this.getItemsFromPages(this._octokit, pages)) {
