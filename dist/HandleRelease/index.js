@@ -47897,6 +47897,7 @@ class HandleRelease {
                 associatedLink = pullRequest.html_url;
                 if (((_a = pullRequest.author) === null || _a === void 0 ? void 0 : _a.login.indexOf('dependabot')) !== -1) {
                     logging_1.logger.info(`Dependabot (${(_b = pullRequest.author) === null || _b === void 0 ? void 0 : _b.login}) PR detected. Skipping release creation.`);
+                    logging_1.logger.info(JSON.stringify(pullRequest));
                     return;
                 }
                 version = yield this._versions.getNextVersionFor(pullRequest);
