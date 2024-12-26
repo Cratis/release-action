@@ -36,7 +36,7 @@ export class HandleRelease {
             associatedLink = pullRequest.html_url;
 
             if( pullRequest.author?.login.indexOf('dependabot') !== -1) {
-                logger.info('Dependabot PR detected. Skipping release creation.');
+                logger.info(`Dependabot (${pullRequest.author?.login}) PR detected. Skipping release creation.`);
                 return;
             }
 
