@@ -36,8 +36,8 @@ export class HandleVersion {
                     }
                 }
 
-                if( pullRequest.author?.login.indexOf('dependabot') !== -1) {
-                    logger.info(`Dependabot (${pullRequest.author?.login}) PR detected. Skipping version creation.`);
+                if( pullRequest.user?.login.indexOf('dependabot') !== -1) {
+                    logger.info(`Dependabot (${pullRequest.user?.login}) PR detected. Skipping version creation.`);
                     outputs.setShouldPublish(false);
                     return;
                 }

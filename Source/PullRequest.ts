@@ -20,5 +20,5 @@ export type PullRequest = {
     head: Branch;
     state: string;
     draft?: boolean;
-    author?: Actor;
+    user?: Actor;
 };
