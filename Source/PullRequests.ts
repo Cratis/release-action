@@ -26,7 +26,7 @@ export class PullRequests implements IPullRequests {
             }
         ).then(data => data.find(pr => pr.merge_commit_sha === sha));
 
-        return mergedPullRequest;
+        return mergedPullRequest as PullRequest;
     }
 
     async getCurrentPullRequest(): Promise<PullRequest | undefined> {
@@ -56,6 +56,6 @@ export class PullRequests implements IPullRequests {
             this._logger.info(`There is no open PR with number '${pull_number}'`);
         }
 
-        return pullRequest;
+        return pullRequest as PullRequest;
     }
 }
