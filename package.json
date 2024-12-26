@@ -18,6 +18,7 @@
     "up": "ncu -u"
   },
   "devDependencies": {
+    "@github/local-action": "2.2.1",
     "@types/node": "22.10.2",
     "@types/semver": "7.5.8",
     "@typescript-eslint/eslint-plugin": "8.18.1",
@@ -28,33 +29,32 @@
     "eslint-plugin-import": "2.31.0",
     "eslint-plugin-no-null": "1.0.2",
     "eslint-plugin-prettier": "5.2.1",
-    "semver": "7.6.3",
-    "typescript": "4.9.5",
     "reflect-metadata": "0.2.2",
-    "@github/local-action": "2.2.1",
-    "tsx": "4.19.2"
+    "semver": "7.6.3",
+    "tsx": "4.19.2",
+    "typescript": "4.9.5"
   },
   "dependencies": {
+    "@actions/core": "1.11.1",
+    "@actions/exec": "1.1.1",
+    "@actions/github": "6.0.0",
+    "@octokit/rest": "21.0.2",
     "@types/chai": "5.0.1",
     "@types/chai-as-promised": "8.0.1",
     "@types/mocha": "10.0.10",
     "@types/sinon": "17.0.3",
     "@types/sinon-chai": "4.0.0",
-    "@actions/core": "1.11.1",
-    "@actions/exec": "1.1.1",
-    "@actions/github": "6.0.0",
-    "@octokit/rest": "21.0.2",
-    "prepend-file": "2.0.1",
-    "tag-cmp": "1.0.1",
-    "ts-node": "10.9.2",
+    "chai": "5.1.2",
+    "chai-as-promised": "8.0.1",
     "is-plain-object": "5.0.0",
-    "node-fetch": "3.3.2",
-    "winston": "3.17.0",
     "mocha": "11.0.1",
+    "node-fetch": "3.3.2",
+    "prepend-file": "2.0.1",
     "sinon": "19.0.2",
     "sinon-chai": "4.0.0",
-    "chai": "5.1.2",
-    "chai-as-promised": "8.0.1"
+    "tag-cmp": "1.0.1",
+    "ts-node": "10.9.2",
+    "winston": "3.17.0"
   },
   "packageManager": "yarn@4.5.3+sha512.3003a14012e2987072d244c720506549c1aab73ee728208f1b2580a9fd67b92d61ba6b08fe93f6dce68fd771e3af1e59a0afa28dd242dd0940d73b95fedd4e90"
 }
