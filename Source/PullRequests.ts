@@ -15,7 +15,7 @@ export class PullRequests implements IPullRequests {
 
         this._logger.info(`Getting merged pull request for: '${sha}''`);
 
-        const mergedPullRequest = await this._octokit.paginate(
+        const result = await this._octokit.paginate(
             this._octokit.pulls.list,
             {
                 owner,
@@ -24,7 +24,17 @@ export class PullRequests implements IPullRequests {
                 sort: 'updated',
                 direction: 'desc'
             }
-        ).then(data => data.find(pr => pr.merge_commit_sha === sha));
+        );
+
+        let mergedPullRequest = result.find(pr => pr.merge_commit_sha === sha);
+        if (!mergedPullRequest) {
+            const commit = await this.getCommitMessage(sha);
+            const match = commit?.match(/Merge pull request #(\d+) from/);
+            if (match) {
+                const prNumber = parseInt(match[1], 10);
+                mergedPullRequest = result.find(pr => pr.number === prNumber);
+            }
+        }
 
         return mergedPullRequest as PullRequest;
     }
@@ -57,5 +67,18 @@ export class PullRequests implements IPullRequests {
         }
 
         return pullRequest as PullRequest;
+    }
+
+    async getCommitMessage(sha: string): Promise<string | undefined> {
+        const owner = this._context.repo.owner;
+        const repo = this._context.repo.repo;
+
+        const commit = await this._octokit.repos.getCommit({
+            owner,
+            repo,
+            ref: sha
+        });
+
+        return commit.data.commit.message;
     }
 }

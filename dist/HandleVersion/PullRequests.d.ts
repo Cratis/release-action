@@ -10,4 +10,5 @@ export declare class PullRequests implements IPullRequests {
     constructor(_octokit: Octokit, _context: Context, _logger: winston.Logger);
     getMergedPullRequest(): Promise<PullRequest | undefined>;
     getCurrentPullRequest(): Promise<PullRequest | undefined>;
+    getCommitMessage(sha: string): Promise<string | undefined>;
 }
