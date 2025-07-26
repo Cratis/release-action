@@ -47462,11 +47462,19 @@ class PullRequests {
             });
             let mergedPullRequest = result.find(pr => pr.merge_commit_sha === sha);
             if (!mergedPullRequest) {
+                this._logger.info(`No merged PR found for commit '${sha}'. Trying to find one based on commit message.`);
                 const commit = yield this.getCommitMessage(sha);
                 const match = commit === null || commit === void 0 ? void 0 : commit.match(/Merge pull request #(\d+) from/);
                 if (match) {
+                    this._logger.info(`Found commit message match for PR #${match[1]}`);
                     const prNumber = parseInt(match[1], 10);
                     mergedPullRequest = result.find(pr => pr.number === prNumber);
+                    if (!mergedPullRequest) {
+                        this._logger.info(`No merged PR found with number '${prNumber}'`);
+                    }
+                    else {
+                        this._logger.info(`Found merged PR: ${mergedPullRequest.title}`);
+                    }
                 }
             }
             return mergedPullRequest;
