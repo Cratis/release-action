@@ -47797,18 +47797,17 @@ class Versions {
         });
     }
     getActualVersion(version, pullRequest) {
+        const prHeadSha = pullRequest.head.sha.substring(0, 7);
         if (version.prerelease.length == 0) {
             return new semver_1.SemVer(`${version.major}.${version.minor}.${version.patch}-${this.getPullRequestPrerelease(pullRequest)}`);
         }
         else {
-            return new semver_1.SemVer(`${version.major}.${version.minor}.${version.patch}-${version.prerelease[0]}.${this.sha}`);
+            return new semver_1.SemVer(`${version.major}.${version.minor}.${version.patch}-${version.prerelease[0]}.${prHeadSha}`);
         }
     }
     getPullRequestPrerelease(pullRequest) {
-        return `pr${pullRequest.number}.${this.sha}`;
-    }
-    get sha() {
-        return this._context.sha.substring(0, 7);
+        const prHeadSha = pullRequest.head.sha.substring(0, 7);
+        return `pr${pullRequest.number}.${prHeadSha}`;
     }
 }
 exports.Versions = Versions;
