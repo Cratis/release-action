@@ -3,7 +3,8 @@ import { Label } from './Label';
 // https://docs.github.com/en/graphql/reference/objects#pullrequest
 
 export type Branch = {
-    ref: string
+    ref: string;
+    sha: string;
 };
 
 export type Actor = {

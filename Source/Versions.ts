@@ -89,18 +89,16 @@ export class Versions implements IVersions {
     }
 
     private getActualVersion(version: semver.SemVer, pullRequest: PullRequest) {
+        const prHeadSha = pullRequest.head.sha.substring(0, 7);
         if (version.prerelease.length == 0) {
             return new SemVer(`${version.major}.${version.minor}.${version.patch}-${this.getPullRequestPrerelease(pullRequest)}`);
         } else {
-            return new SemVer(`${version.major}.${version.minor}.${version.patch}-${version.prerelease[0]}.${this.sha}`);
+            return new SemVer(`${version.major}.${version.minor}.${version.patch}-${version.prerelease[0]}.${prHeadSha}`);
         }
     }
 
     private getPullRequestPrerelease(pullRequest: PullRequest) {
-        return `pr${pullRequest.number}.${this.sha}`;
-    }
-
-    private get sha() {
-        return this._context.sha.substring(0, 7);
+        const prHeadSha = pullRequest.head.sha.substring(0, 7);
+        return `pr${pullRequest.number}.${prHeadSha}`;
     }
 }
