@@ -14,5 +14,4 @@ export declare class Versions implements IVersions {
     getNextVersionFor(pullRequest: PullRequest): Promise<VersionInfo>;
     private getActualVersion;
     private getPullRequestPrerelease;
-    private get sha();
 }

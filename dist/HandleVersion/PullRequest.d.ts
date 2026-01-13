@@ -1,6 +1,7 @@
 import { Label } from './Label';
 export type Branch = {
     ref: string;
+    sha: string;
 };
 export type Actor = {
     login: string;
