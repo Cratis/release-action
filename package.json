@@ -18,7 +18,7 @@
     "up": "ncu -u"
   },
   "devDependencies": {
-    "@github/local-action": "2.2.1",
+    "@github/local-action": "7.0.1",
     "@types/node": "22.10.2",
     "@types/semver": "7.5.8",
     "@typescript-eslint/eslint-plugin": "8.18.1",
