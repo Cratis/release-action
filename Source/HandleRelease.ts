@@ -40,7 +40,17 @@ export class HandleRelease {
                 return;
             }
 
-            version = await this._versions.getNextVersionFor(pullRequest);
+            // Try to get the pre-calculated version from the main step output
+            const preCalculatedVersion = process.env.OUTPUT_VERSION;
+            if (preCalculatedVersion) {
+                logger.info(`Using pre-calculated version from main step: ${preCalculatedVersion}`);
+                const semVer = new SemVer(preCalculatedVersion);
+                version = new VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
+            } else {
+                // Fall back to calculating the version if not provided by main step
+                version = await this._versions.getNextVersionFor(pullRequest);
+            }
+            
             if (!version || version.isPrerelease || !version.version) return;
         } else {
             const semVer = new SemVer(inputs.version!);
