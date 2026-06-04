@@ -64,12 +64,14 @@ export class HandleVersion {
             outputs.setPrerelease(version.isPrerelease);
             outputs.setIsolatedForPullRequest(version.isIsolatedForPullRequest);
             
-            // Export version as environment variable for post step
+            // Export version and metadata as environment variables for post step
             // This ensures the post step uses the same version that was calculated here,
             // preventing duplicate releases if the version calculation were to run again.
             // Only release versions (isRelease=true) are exported, as the above check
             // ensures this function only continues if version.isRelease is true.
             exportVariable('OUTPUT_VERSION', version.version.version);
+            exportVariable('OUTPUT_VERSION_IS_PRERELEASE', String(version.isPrerelease));
+            exportVariable('OUTPUT_VERSION_IS_ISOLATED', String(version.isIsolatedForPullRequest));
         } catch (ex) {
             logger.error("Something went wrong");
             logger.error(ex);
