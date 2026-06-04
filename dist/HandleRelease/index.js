@@ -47230,10 +47230,13 @@ class HandleRelease {
                     try {
                         const semVer = new semver_1.SemVer(preCalculatedVersion);
                         // Create VersionInfo with pre-calculated version
-                        const isMajor = false; // Unknown from pre-calculated version
-                        const isMinor = false; // Unknown from pre-calculated version
-                        const isPatch = false; // Unknown from pre-calculated version
-                        const isRelease = true; // Only release versions are exported from main step
+                        // Note: Version bump type flags (isMajor, isMinor, isPatch) are only meaningful during
+                        // version calculation in the main step. The post step only needs the version string
+                        // to create the release. These flags are not used downstream in HandleRelease.
+                        const isMajor = false; // Not needed for release creation
+                        const isMinor = false; // Not needed for release creation
+                        const isPatch = false; // Not needed for release creation
+                        const isRelease = true; // Only release versions (isRelease=true) are exported from main step
                         const isPrerelease = semVer.prerelease.length !== 0;
                         const isIsolatedForPullRequest = false;
                         const isValid = true; // Version is valid since it was calculated and exported by main step

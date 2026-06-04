@@ -47249,6 +47249,10 @@ class HandleVersion {
                 outputs_1.default.setPrerelease(version.isPrerelease);
                 outputs_1.default.setIsolatedForPullRequest(version.isIsolatedForPullRequest);
                 // Export version as environment variable for post step
+                // This ensures the post step uses the same version that was calculated here,
+                // preventing duplicate releases if the version calculation were to run again.
+                // Only release versions (isRelease=true) are exported, as the above check
+                // ensures this function only continues if version.isRelease is true.
                 (0, core_1.exportVariable)('OUTPUT_VERSION', version.version.version);
             }
             catch (ex) {
