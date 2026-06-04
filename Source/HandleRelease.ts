@@ -44,22 +44,26 @@ export class HandleRelease {
             const preCalculatedVersion = process.env.OUTPUT_VERSION;
             if (preCalculatedVersion) {
                 logger.info(`Using pre-calculated version from main step: ${preCalculatedVersion}`);
+                // Define constants for VersionInfo parameters
+                // Version bump type flags are not needed for release creation, so they default to unknown/false
+                const VERSION_BUMP_TYPE_UNKNOWN = false;
+                const isRelease = true; // Only release versions (isRelease=true) are exported from main step
+                
                 try {
                     const semVer = new SemVer(preCalculatedVersion);
-                    // Create VersionInfo with pre-calculated version and exported metadata
-                    // Note: Version bump type flags (isMajor, isMinor, isPatch) are not exported
-                    // because they are only needed during version calculation, not for release creation.
-                    const VERSION_BUMP_NOT_DETERMINED = false;
-                    const isRelease = true; // Only release versions (isRelease=true) are exported from main step
+                    // Read version metadata from exported environment variables
                     const isPrerelease = process.env.OUTPUT_VERSION_IS_PRERELEASE === 'true';
                     const isIsolatedForPullRequest = process.env.OUTPUT_VERSION_IS_ISOLATED === 'true';
                     const isValid = true;   // Version is valid since it was calculated and exported by main step
                     
+                    // Create VersionInfo with pre-calculated version and exported metadata
+                    // Note: Version bump type flags (isMajor, isMinor, isPatch) are not exported
+                    // because they are only needed during version calculation, not for release creation.
                     version = new VersionInfo(
                         semVer,
-                        VERSION_BUMP_NOT_DETERMINED, // isMajor
-                        VERSION_BUMP_NOT_DETERMINED, // isMinor
-                        VERSION_BUMP_NOT_DETERMINED, // isPatch
+                        VERSION_BUMP_TYPE_UNKNOWN, // isMajor
+                        VERSION_BUMP_TYPE_UNKNOWN, // isMinor
+                        VERSION_BUMP_TYPE_UNKNOWN, // isPatch
                         isRelease,
                         isPrerelease,
                         isIsolatedForPullRequest,
