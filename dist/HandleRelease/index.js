@@ -47227,8 +47227,18 @@ class HandleRelease {
                 const preCalculatedVersion = process.env.OUTPUT_VERSION;
                 if (preCalculatedVersion) {
                     logging_1.logger.info(`Using pre-calculated version from main step: ${preCalculatedVersion}`);
-                    const semVer = new semver_1.SemVer(preCalculatedVersion);
-                    version = new VersionInfo_1.VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
+                    try {
+                        const semVer = new semver_1.SemVer(preCalculatedVersion);
+                        // Create VersionInfo with pre-calculated version
+                        // Parameters: version, isMajor, isMinor, isPatch, isRelease, isPrerelease, isIsolatedForPullRequest, isValid
+                        version = new VersionInfo_1.VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
+                    }
+                    catch (ex) {
+                        logging_1.logger.error(`Failed to parse pre-calculated version: ${preCalculatedVersion}`);
+                        logging_1.logger.error(ex);
+                        // Fall back to calculating the version if parsing fails
+                        version = yield this._versions.getNextVersionFor(pullRequest);
+                    }
                 }
                 else {
                     // Fall back to calculating the version if not provided by main step
