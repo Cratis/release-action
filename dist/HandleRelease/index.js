@@ -47389,7 +47389,39 @@ class HandleRelease {
                     logging_1.logger.info(`Dependabot (${(_b = pullRequest.user) === null || _b === void 0 ? void 0 : _b.login}) PR detected. Skipping release creation.`);
                     return;
                 }
-                version = yield this._versions.getNextVersionFor(pullRequest);
+                // Try to get the pre-calculated version from the main step output
+                const preCalculatedVersion = process.env.OUTPUT_VERSION;
+                if (preCalculatedVersion) {
+                    logging_1.logger.info(`Using pre-calculated version from main step: ${preCalculatedVersion}`);
+                    // Define constants for VersionInfo parameters
+                    // Version bump type flags are not needed for release creation, so they default to unknown/false
+                    const VERSION_BUMP_TYPE_UNKNOWN = false;
+                    const isRelease = true; // Only release versions (isRelease=true) are exported from main step
+                    try {
+                        const semVer = new semver_1.SemVer(preCalculatedVersion);
+                        // Read version metadata from exported environment variables
+                        const isPrerelease = process.env.OUTPUT_VERSION_IS_PRERELEASE === 'true';
+                        const isIsolatedForPullRequest = process.env.OUTPUT_VERSION_IS_ISOLATED === 'true';
+                        const isValid = true; // Version is valid since it was calculated and exported by main step
+                        // Create VersionInfo with pre-calculated version and exported metadata
+                        // Note: Version bump type flags (isMajor, isMinor, isPatch) are not exported
+                        // because they are only needed during version calculation, not for release creation.
+                        version = new VersionInfo_1.VersionInfo(semVer, VERSION_BUMP_TYPE_UNKNOWN, // isMajor
+                        VERSION_BUMP_TYPE_UNKNOWN, // isMinor
+                        VERSION_BUMP_TYPE_UNKNOWN, // isPatch
+                        isRelease, isPrerelease, isIsolatedForPullRequest, isValid);
+                    }
+                    catch (ex) {
+                        logging_1.logger.error(`Failed to parse pre-calculated version: ${preCalculatedVersion}`);
+                        logging_1.logger.error(ex);
+                        // Fall back to calculating the version if parsing fails
+                        version = yield this._versions.getNextVersionFor(pullRequest);
+                    }
+                }
+                else {
+                    // Fall back to calculating the version if not provided by main step
+                    version = yield this._versions.getNextVersionFor(pullRequest);
+                }
                 if (!version || version.isPrerelease || !version.version)
                     return;
             }

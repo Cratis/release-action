@@ -47355,6 +47355,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.run = exports.HandleVersion = void 0;
 const github_1 = __nccwpck_require__(3228);
+const core_1 = __nccwpck_require__(7484);
 const rest_1 = __nccwpck_require__(1890);
 const logging_1 = __nccwpck_require__(4503);
 const inputs_1 = __importDefault(__nccwpck_require__(2729));
@@ -47413,6 +47414,14 @@ class HandleVersion {
                 outputs_1.default.setShouldPublish(true);
                 outputs_1.default.setPrerelease(version.isPrerelease);
                 outputs_1.default.setIsolatedForPullRequest(version.isIsolatedForPullRequest);
+                // Export version and metadata as environment variables for post step
+                // This ensures the post step uses the same version that was calculated here,
+                // preventing duplicate releases if the version calculation were to run again.
+                // Only release versions (isRelease=true) are exported, as the above check
+                // ensures this function only continues if version.isRelease is true.
+                (0, core_1.exportVariable)('OUTPUT_VERSION', version.version.version);
+                (0, core_1.exportVariable)('OUTPUT_VERSION_IS_PRERELEASE', String(version.isPrerelease));
+                (0, core_1.exportVariable)('OUTPUT_VERSION_IS_ISOLATED', String(version.isIsolatedForPullRequest));
             }
             catch (ex) {
                 logging_1.logger.error("Something went wrong");
