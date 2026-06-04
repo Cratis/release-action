@@ -47,7 +47,7 @@
     "chai": "5.1.2",
     "chai-as-promised": "8.0.1",
     "is-plain-object": "5.0.0",
-    "mocha": "11.0.1",
+    "mocha": "11.7.6",
     "node-fetch": "3.3.2",
     "prepend-file": "2.0.1",
     "sinon": "19.0.2",
