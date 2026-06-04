@@ -47189,6 +47189,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.run = exports.HandleVersion = void 0;
 const github_1 = __nccwpck_require__(3228);
+const core_1 = __nccwpck_require__(7484);
 const rest_1 = __nccwpck_require__(1890);
 const logging_1 = __nccwpck_require__(4503);
 const inputs_1 = __importDefault(__nccwpck_require__(2729));
@@ -47247,6 +47248,8 @@ class HandleVersion {
                 outputs_1.default.setShouldPublish(true);
                 outputs_1.default.setPrerelease(version.isPrerelease);
                 outputs_1.default.setIsolatedForPullRequest(version.isIsolatedForPullRequest);
+                // Export version as environment variable for post step
+                (0, core_1.exportVariable)('OUTPUT_VERSION', version.version.version);
             }
             catch (ex) {
                 logging_1.logger.error("Something went wrong");

@@ -1,4 +1,5 @@
 import { context } from '@actions/github';
+import { exportVariable } from '@actions/core';
 import { Octokit } from '@octokit/rest';
 import { logger } from './logging';
 import inputs from './inputs';
@@ -62,6 +63,9 @@ export class HandleVersion {
             outputs.setShouldPublish(true);
             outputs.setPrerelease(version.isPrerelease);
             outputs.setIsolatedForPullRequest(version.isIsolatedForPullRequest);
+            
+            // Export version as environment variable for post step
+            exportVariable('OUTPUT_VERSION', version.version.version);
         } catch (ex) {
             logger.error("Something went wrong");
             logger.error(ex);
