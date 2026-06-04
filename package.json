@@ -51,7 +51,7 @@
     "node-fetch": "3.3.2",
     "prepend-file": "2.0.1",
     "sinon": "19.0.2",
-    "sinon-chai": "4.0.0",
+    "sinon-chai": "4.0.1",
     "tag-cmp": "1.0.1",
     "ts-node": "10.9.2",
     "winston": "3.17.0"
