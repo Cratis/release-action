@@ -50,7 +50,7 @@
     "mocha": "11.0.1",
     "node-fetch": "3.3.2",
     "prepend-file": "2.0.1",
-    "sinon": "19.0.2",
+    "sinon": "22.0.0",
     "sinon-chai": "4.0.0",
     "tag-cmp": "1.0.1",
     "ts-node": "10.9.2",
