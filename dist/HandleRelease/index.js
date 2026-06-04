@@ -47230,8 +47230,14 @@ class HandleRelease {
                     try {
                         const semVer = new semver_1.SemVer(preCalculatedVersion);
                         // Create VersionInfo with pre-calculated version
-                        // Parameters: version, isMajor, isMinor, isPatch, isRelease, isPrerelease, isIsolatedForPullRequest, isValid
-                        version = new VersionInfo_1.VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
+                        const isMajor = false; // Unknown from pre-calculated version
+                        const isMinor = false; // Unknown from pre-calculated version
+                        const isPatch = false; // Unknown from pre-calculated version
+                        const isRelease = true; // Only release versions are exported from main step
+                        const isPrerelease = semVer.prerelease.length !== 0;
+                        const isIsolatedForPullRequest = false;
+                        const isValid = true; // Version is valid since it was calculated and exported by main step
+                        version = new VersionInfo_1.VersionInfo(semVer, isMajor, isMinor, isPatch, isRelease, isPrerelease, isIsolatedForPullRequest, isValid);
                     }
                     catch (ex) {
                         logging_1.logger.error(`Failed to parse pre-calculated version: ${preCalculatedVersion}`);
