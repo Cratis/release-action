@@ -47205,7 +47205,7 @@ class HandleRelease {
         this._versions = _versions;
     }
     validateInput(value, fieldName) {
-        if (!value || value.trim() === '') {
+        if (value == null || value.trim() === '') {
             logging_1.logger.warn(`⚠️  No ${fieldName} provided. Skipping release creation.`);
             return false;
         }
@@ -47580,12 +47580,15 @@ class Tags {
             let hasMore = true;
             while (hasMore) {
                 const response = yield this._octokit.repos.listReleases({
-                    owner: owner,
-                    repo: repo,
+                    owner,
+                    repo,
                     per_page: 100,
-                    page: page
+                    page
                 });
-                releases.push(...response.data);
+                releases.push(...response.data.map(r => ({
+                    tag_name: r.tag_name,
+                    target_commitish: r.target_commitish
+                })));
                 hasMore = response.data.length === 100;
                 page++;
             }

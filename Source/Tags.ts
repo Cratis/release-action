@@ -97,12 +97,15 @@ export class Tags implements ITags {
 
         while (hasMore) {
             const response = await this._octokit.repos.listReleases({
-                owner: owner,
-                repo: repo,
+                owner,
+                repo,
                 per_page: 100,
-                page: page
+                page
             });
-            releases.push(...(response.data as Release[]));
+            releases.push(...response.data.map(r => ({
+                tag_name: r.tag_name,
+                target_commitish: r.target_commitish
+            })));
             hasMore = response.data.length === 100;
             page++;
         }

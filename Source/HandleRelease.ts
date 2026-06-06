@@ -21,7 +21,7 @@ export class HandleRelease {
     }
 
     private validateInput(value: string | null | undefined, fieldName: string): boolean {
-        if (!value || value.trim() === '') {
+        if (value == null || value.trim() === '') {
             logger.warn(`⚠️  No ${fieldName} provided. Skipping release creation.`);
             return false;
         }
