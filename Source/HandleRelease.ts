@@ -82,6 +82,24 @@ export class HandleRelease {
 
             if (!version || version.isPrerelease || !version.version) return;
         } else {
+            // Validate required inputs when explicitly provided
+            if (!inputs.version || inputs.version.trim() === '') {
+                logger.warn('⚠️  No version input provided. Skipping release creation.');
+                return;
+            }
+
+            if (!inputs.releaseNotes || inputs.releaseNotes.trim() === '') {
+                logger.warn('⚠️  No release notes provided. Skipping release creation.');
+                return;
+            }
+
+            // Validate semantic version format (basic validation)
+            const semverRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$/;
+            if (!semverRegex.test(inputs.version)) {
+                logger.error(`❌ Invalid semantic version format: "${inputs.version}". Expected format: X.Y.Z`);
+                throw new Error(`Invalid version format: ${inputs.version}`);
+            }
+
             const semVer = new SemVer(inputs.version!);
             version = new VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
             releaseNotes = inputs.releaseNotes || '';
@@ -90,6 +108,13 @@ export class HandleRelease {
         }
 
         logger.info(`Create release for version '${version.version}'`);
+
+        // Check if a release already exists for this commit
+        const tags = new Tags(octokit, this._context, logger);
+        if (await tags.releaseExistsForSha(this._context.sha)) {
+            logger.warn(`⚠️  Release already exists for commit ${this._context.sha}. Skipping duplicate.`);
+            return;
+        }
 
         // GitHub Create Release documentation: https://developer.github.com/v3/repos/releases/#create-a-release
         // GitHub Octokit Create Release documentation: https://octokit.github.io/rest.js/v18#repos-create-release

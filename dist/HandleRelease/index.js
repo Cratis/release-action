@@ -47260,6 +47260,21 @@ class HandleRelease {
                     return;
             }
             else {
+                // Validate required inputs when explicitly provided
+                if (!inputs_1.default.version || inputs_1.default.version.trim() === '') {
+                    logging_1.logger.warn('⚠️  No version input provided. Skipping release creation.');
+                    return;
+                }
+                if (!inputs_1.default.releaseNotes || inputs_1.default.releaseNotes.trim() === '') {
+                    logging_1.logger.warn('⚠️  No release notes provided. Skipping release creation.');
+                    return;
+                }
+                // Validate semantic version format (basic validation)
+                const semverRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$/;
+                if (!semverRegex.test(inputs_1.default.version)) {
+                    logging_1.logger.error(`❌ Invalid semantic version format: "${inputs_1.default.version}". Expected format: X.Y.Z`);
+                    throw new Error(`Invalid version format: ${inputs_1.default.version}`);
+                }
                 const semVer = new semver_1.SemVer(inputs_1.default.version);
                 version = new VersionInfo_1.VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
                 releaseNotes = inputs_1.default.releaseNotes || '';
@@ -47267,6 +47282,12 @@ class HandleRelease {
                 logging_1.logger.info(`Release notes: ${releaseNotes}`);
             }
             logging_1.logger.info(`Create release for version '${version.version}'`);
+            // Check if a release already exists for this commit
+            const tags = new Tags_1.Tags(octokit, this._context, logging_1.logger);
+            if (yield tags.releaseExistsForSha(this._context.sha)) {
+                logging_1.logger.warn(`⚠️  Release already exists for commit ${this._context.sha}. Skipping duplicate.`);
+                return;
+            }
             // GitHub Create Release documentation: https://developer.github.com/v3/repos/releases/#create-a-release
             // GitHub Octokit Create Release documentation: https://octokit.github.io/rest.js/v18#repos-create-release
             const release = {
@@ -47514,6 +47535,45 @@ class Tags {
                 }
                 finally { if (e_2) throw e_2.error; }
             }
+        });
+    }
+    /**
+     * Checks if a release already exists for the given commit SHA
+     * @param sha The commit SHA to check
+     * @returns true if a release exists for this SHA, false otherwise
+     */
+    releaseExistsForSha(sha) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const releases = yield this.getReleases();
+                for (const release of releases) {
+                    if (release.target_commitish === sha) {
+                        this._logger.info(`ℹ️  Release already exists for SHA ${sha}: ${release.tag_name}`);
+                        return true;
+                    }
+                }
+                return false;
+            }
+            catch (error) {
+                this._logger.error(`Error checking for existing releases: ${error}`);
+                throw error;
+            }
+        });
+    }
+    /**
+     * Gets all releases for the repository
+     * @returns Array of release objects
+     */
+    getReleases() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const owner = this._context.repo.owner;
+            const repo = this._context.repo.repo;
+            const { data } = yield this._octokit.repos.listReleases({
+                owner: owner,
+                repo: repo,
+                per_page: 100
+            });
+            return data;
         });
     }
 }

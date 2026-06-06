@@ -57,4 +57,40 @@ export class Tags implements ITags {
             }
         }
     }
+
+    /**
+     * Checks if a release already exists for the given commit SHA
+     * @param sha The commit SHA to check
+     * @returns true if a release exists for this SHA, false otherwise
+     */
+    async releaseExistsForSha(sha: string): Promise<boolean> {
+        try {
+            const releases = await this.getReleases();
+            for (const release of releases) {
+                if (release.target_commitish === sha) {
+                    this._logger.info(`ℹ️  Release already exists for SHA ${sha}: ${release.tag_name}`);
+                    return true;
+                }
+            }
+            return false;
+        } catch (error) {
+            this._logger.error(`Error checking for existing releases: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Gets all releases for the repository
+     * @returns Array of release objects
+     */
+    private async getReleases() {
+        const owner = this._context.repo.owner;
+        const repo = this._context.repo.repo;
+        const { data } = await this._octokit.repos.listReleases({
+            owner: owner,
+            repo: repo,
+            per_page: 100
+        });
+        return data;
+    }
 }
