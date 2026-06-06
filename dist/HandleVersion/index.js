@@ -47527,19 +47527,28 @@ class Tags {
         });
     }
     /**
-     * Gets all releases for the repository
+     * Gets all releases for the repository with pagination support
      * @returns Array of release objects
      */
     getReleases() {
         return __awaiter(this, void 0, void 0, function* () {
             const owner = this._context.repo.owner;
             const repo = this._context.repo.repo;
-            const { data } = yield this._octokit.repos.listReleases({
-                owner: owner,
-                repo: repo,
-                per_page: 100
-            });
-            return data;
+            const releases = [];
+            let page = 1;
+            let hasMore = true;
+            while (hasMore) {
+                const response = yield this._octokit.repos.listReleases({
+                    owner: owner,
+                    repo: repo,
+                    per_page: 100,
+                    page: page
+                });
+                releases.push(...response.data);
+                hasMore = response.data.length === 100;
+                page++;
+            }
+            return releases;
         });
     }
 }

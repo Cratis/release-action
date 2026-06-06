@@ -47269,13 +47269,15 @@ class HandleRelease {
                     logging_1.logger.warn('⚠️  No release notes provided. Skipping release creation.');
                     return;
                 }
-                // Validate semantic version format (basic validation)
-                const semverRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$/;
-                if (!semverRegex.test(inputs_1.default.version)) {
+                // Validate semantic version format using SemVer constructor
+                let semVer;
+                try {
+                    semVer = new semver_1.SemVer(inputs_1.default.version);
+                }
+                catch (ex) {
                     logging_1.logger.error(`❌ Invalid semantic version format: "${inputs_1.default.version}". Expected format: X.Y.Z`);
                     throw new Error(`Invalid version format: ${inputs_1.default.version}`);
                 }
-                const semVer = new semver_1.SemVer(inputs_1.default.version);
                 version = new VersionInfo_1.VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
                 releaseNotes = inputs_1.default.releaseNotes || '';
                 logging_1.logger.info('Using explicitly set version number');
@@ -47561,19 +47563,28 @@ class Tags {
         });
     }
     /**
-     * Gets all releases for the repository
+     * Gets all releases for the repository with pagination support
      * @returns Array of release objects
      */
     getReleases() {
         return __awaiter(this, void 0, void 0, function* () {
             const owner = this._context.repo.owner;
             const repo = this._context.repo.repo;
-            const { data } = yield this._octokit.repos.listReleases({
-                owner: owner,
-                repo: repo,
-                per_page: 100
-            });
-            return data;
+            const releases = [];
+            let page = 1;
+            let hasMore = true;
+            while (hasMore) {
+                const response = yield this._octokit.repos.listReleases({
+                    owner: owner,
+                    repo: repo,
+                    per_page: 100,
+                    page: page
+                });
+                releases.push(...response.data);
+                hasMore = response.data.length === 100;
+                page++;
+            }
+            return releases;
         });
     }
 }

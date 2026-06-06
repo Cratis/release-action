@@ -4,6 +4,12 @@ import winston from 'winston';
 import { ITags } from './ITags';
 import { Context } from '@actions/github/lib/context';
 
+interface Release {
+    tag_name: string;
+    target_commitish: string;
+    [key: string]: any;
+}
+
 export class Tags implements ITags {
 
     constructor(readonly _octokit: Octokit, readonly _context: Context, readonly _logger: winston.Logger) {
@@ -80,17 +86,27 @@ export class Tags implements ITags {
     }
 
     /**
-     * Gets all releases for the repository
+     * Gets all releases for the repository with pagination support
      * @returns Array of release objects
      */
-    private async getReleases() {
+    private async getReleases(): Promise<Release[]> {
         const owner = this._context.repo.owner;
         const repo = this._context.repo.repo;
-        const { data } = await this._octokit.repos.listReleases({
-            owner: owner,
-            repo: repo,
-            per_page: 100
-        });
-        return data;
+        const releases: Release[] = [];
+        let page = 1;
+        let hasMore = true;
+
+        while (hasMore) {
+            const response = await this._octokit.repos.listReleases({
+                owner: owner,
+                repo: repo,
+                per_page: 100,
+                page: page
+            });
+            releases.push(...response.data);
+            hasMore = response.data.length === 100;
+            page++;
+        }
+        return releases;
     }
 }

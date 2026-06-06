@@ -93,14 +93,15 @@ export class HandleRelease {
                 return;
             }
 
-            // Validate semantic version format (basic validation)
-            const semverRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$/;
-            if (!semverRegex.test(inputs.version)) {
+            // Validate semantic version format using SemVer constructor
+            let semVer: SemVer;
+            try {
+                semVer = new SemVer(inputs.version!);
+            } catch (ex) {
                 logger.error(`❌ Invalid semantic version format: "${inputs.version}". Expected format: X.Y.Z`);
                 throw new Error(`Invalid version format: ${inputs.version}`);
             }
 
-            const semVer = new SemVer(inputs.version!);
             version = new VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
             releaseNotes = inputs.releaseNotes || '';
             logger.info('Using explicitly set version number');

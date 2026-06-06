@@ -16,7 +16,7 @@ export declare class Tags implements ITags {
      */
     releaseExistsForSha(sha: string): Promise<boolean>;
     /**
-     * Gets all releases for the repository
+     * Gets all releases for the repository with pagination support
      * @returns Array of release objects
      */
     private getReleases;
