@@ -20,6 +20,14 @@ export class HandleRelease {
     constructor(readonly _pullRequests: IPullRequests, readonly _context: Context, readonly _versions: IVersions) {
     }
 
+    private validateInput(value: string | null | undefined, fieldName: string): boolean {
+        if (!value || value.trim() === '') {
+            logger.warn(`⚠️  No ${fieldName} provided. Skipping release creation.`);
+            return false;
+        }
+        return true;
+    }
+
     async run(): Promise<void> {
         let pullRequest: PullRequest | undefined;
         let version: VersionInfo | undefined;
@@ -83,13 +91,11 @@ export class HandleRelease {
             if (!version || version.isPrerelease || !version.version) return;
         } else {
             // Validate required inputs when explicitly provided
-            if (!inputs.version || inputs.version.trim() === '') {
-                logger.warn('⚠️  No version input provided. Skipping release creation.');
+            if (!this.validateInput(inputs.version, 'version input')) {
                 return;
             }
 
-            if (!inputs.releaseNotes || inputs.releaseNotes.trim() === '') {
-                logger.warn('⚠️  No release notes provided. Skipping release creation.');
+            if (!this.validateInput(inputs.releaseNotes, 'release notes')) {
                 return;
             }
 

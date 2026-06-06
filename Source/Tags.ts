@@ -7,7 +7,6 @@ import { Context } from '@actions/github/lib/context';
 interface Release {
     tag_name: string;
     target_commitish: string;
-    [key: string]: any;
 }
 
 export class Tags implements ITags {
@@ -103,7 +102,7 @@ export class Tags implements ITags {
                 per_page: 100,
                 page: page
             });
-            releases.push(...response.data);
+            releases.push(...(response.data as Release[]));
             hasMore = response.data.length === 100;
             page++;
         }

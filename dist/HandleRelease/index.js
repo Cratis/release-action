@@ -47204,6 +47204,13 @@ class HandleRelease {
         this._context = _context;
         this._versions = _versions;
     }
+    validateInput(value, fieldName) {
+        if (!value || value.trim() === '') {
+            logging_1.logger.warn(`⚠️  No ${fieldName} provided. Skipping release creation.`);
+            return false;
+        }
+        return true;
+    }
     run() {
         var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
@@ -47261,12 +47268,10 @@ class HandleRelease {
             }
             else {
                 // Validate required inputs when explicitly provided
-                if (!inputs_1.default.version || inputs_1.default.version.trim() === '') {
-                    logging_1.logger.warn('⚠️  No version input provided. Skipping release creation.');
+                if (!this.validateInput(inputs_1.default.version, 'version input')) {
                     return;
                 }
-                if (!inputs_1.default.releaseNotes || inputs_1.default.releaseNotes.trim() === '') {
-                    logging_1.logger.warn('⚠️  No release notes provided. Skipping release creation.');
+                if (!this.validateInput(inputs_1.default.releaseNotes, 'release notes')) {
                     return;
                 }
                 // Validate semantic version format using SemVer constructor
