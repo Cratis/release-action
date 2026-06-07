@@ -6,5 +6,6 @@ export declare class HandleRelease {
     readonly _context: Context;
     readonly _versions: IVersions;
     constructor(_pullRequests: IPullRequests, _context: Context, _versions: IVersions);
+    private validateInput;
     run(): Promise<void>;
 }

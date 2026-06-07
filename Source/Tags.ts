@@ -4,6 +4,11 @@ import winston from 'winston';
 import { ITags } from './ITags';
 import { Context } from '@actions/github/lib/context';
 
+interface Release {
+    tag_name: string;
+    target_commitish: string;
+}
+
 export class Tags implements ITags {
 
     constructor(readonly _octokit: Octokit, readonly _context: Context, readonly _logger: winston.Logger) {
@@ -56,5 +61,54 @@ export class Tags implements ITags {
                 yield item;
             }
         }
+    }
+
+    /**
+     * Checks if a release already exists for the given commit SHA
+     * @param sha The commit SHA to check
+     * @returns true if a release exists for this SHA, false otherwise
+     */
+    async releaseExistsForSha(sha: string): Promise<boolean> {
+        try {
+            const releases = await this.getReleases();
+            for (const release of releases) {
+                if (release.target_commitish === sha) {
+                    this._logger.info(`ℹ️  Release already exists for SHA ${sha}: ${release.tag_name}`);
+                    return true;
+                }
+            }
+            return false;
+        } catch (error) {
+            this._logger.error(`Error checking for existing releases: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Gets all releases for the repository with pagination support
+     * @returns Array of release objects
+     */
+    private async getReleases(): Promise<Release[]> {
+        const owner = this._context.repo.owner;
+        const repo = this._context.repo.repo;
+        const releases: Release[] = [];
+        let page = 1;
+        let hasMore = true;
+
+        while (hasMore) {
+            const response = await this._octokit.repos.listReleases({
+                owner,
+                repo,
+                per_page: 100,
+                page
+            });
+            releases.push(...response.data.map(r => ({
+                tag_name: r.tag_name,
+                target_commitish: r.target_commitish
+            })));
+            hasMore = response.data.length === 100;
+            page++;
+        }
+        return releases;
     }
 }

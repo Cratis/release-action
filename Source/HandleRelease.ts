@@ -20,6 +20,14 @@ export class HandleRelease {
     constructor(readonly _pullRequests: IPullRequests, readonly _context: Context, readonly _versions: IVersions) {
     }
 
+    private validateInput(value: string | null | undefined, fieldName: string): boolean {
+        if (value == null || value.trim() === '') {
+            logger.warn(`⚠️  No ${fieldName} provided. Skipping release creation.`);
+            return false;
+        }
+        return true;
+    }
+
     async run(): Promise<void> {
         let pullRequest: PullRequest | undefined;
         let version: VersionInfo | undefined;
@@ -82,7 +90,24 @@ export class HandleRelease {
 
             if (!version || version.isPrerelease || !version.version) return;
         } else {
-            const semVer = new SemVer(inputs.version!);
+            // Validate required inputs when explicitly provided
+            if (!this.validateInput(inputs.version, 'version input')) {
+                return;
+            }
+
+            if (!this.validateInput(inputs.releaseNotes, 'release notes')) {
+                return;
+            }
+
+            // Validate semantic version format using SemVer constructor
+            let semVer: SemVer;
+            try {
+                semVer = new SemVer(inputs.version!);
+            } catch (ex) {
+                logger.error(`❌ Invalid semantic version format: "${inputs.version}". Expected format: X.Y.Z`);
+                throw new Error(`Invalid version format: ${inputs.version}`);
+            }
+
             version = new VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
             releaseNotes = inputs.releaseNotes || '';
             logger.info('Using explicitly set version number');
@@ -90,6 +115,13 @@ export class HandleRelease {
         }
 
         logger.info(`Create release for version '${version.version}'`);
+
+        // Check if a release already exists for this commit
+        const tags = new Tags(octokit, this._context, logger);
+        if (await tags.releaseExistsForSha(this._context.sha)) {
+            logger.warn(`⚠️  Release already exists for commit ${this._context.sha}. Skipping duplicate.`);
+            return;
+        }
 
         // GitHub Create Release documentation: https://developer.github.com/v3/repos/releases/#create-a-release
         // GitHub Octokit Create Release documentation: https://octokit.github.io/rest.js/v18#repos-create-release
