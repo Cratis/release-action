@@ -157,3 +157,12 @@ yarn test     # specs only
 
 Specs live next to the source in `for_*/when_*/` folders and follow the Cratis spec conventions - see
 [.ai/rules/specs.typescript.md](./.ai/rules/specs.typescript.md).
+
+## Releasing
+
+This action releases itself. Label a pull request `major`, `minor` or `patch`, and when it is merged the
+[Release workflow](./.github/workflows/release.yml) runs the action on the merge commit: it works out the next
+version, creates the `vX.Y.Z` GitHub release, and moves the floating `vX` and `vX.Y` tags to the release so
+that consumers tracking `@v1` pick it up. A merge without one of those labels releases nothing.
+
+There is nothing to run by hand - no tags to push and no version to bump manually.
