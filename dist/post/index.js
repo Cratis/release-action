@@ -39866,7 +39866,9 @@ const logger = {
 
 
 const run = async () => {
-    const octokit = new dist_src_Octokit({ auth: inputs.gitHubToken || undefined });
+    // GITHUB_API_URL is always set by the runner (to https://api.github.com on github.com, or the enterprise
+    // host on GitHub Enterprise Server), so honoring it keeps the action working on both.
+    const octokit = new dist_src_Octokit({ auth: inputs.gitHubToken || undefined, baseUrl: process.env.GITHUB_API_URL || undefined });
     const handleRelease = new HandleRelease(new Releases(octokit, github_context, logger, inputs.tagPrefix), new ReleaseDecisions(), github_context, logger);
     await handleRelease.run();
 };
