@@ -6,20 +6,22 @@ import { RecordingLogger } from '../../specs/RecordingLogger';
 import { FakeOctokit, aFakeOctokit } from '../../specs/aFakeOctokit';
 import { anActionContext } from '../../specs/anActionContext';
 
-// The very first run of the action on a repository has no releases API access or an empty repository - it must
-// still yield a usable starting point rather than throwing.
-describe('when getting the latest release version and the api call fails', () => {
+// Once real releases exist they are authoritative - a stray higher tag never overrides them.
+describe('when getting the latest release version with both releases and higher tags', () => {
     let result: SemVer;
 
     beforeEach(async () => {
         const fake: FakeOctokit = aFakeOctokit();
-        fake.paginateRejects(new Error('nope'));
+        fake.setReleases([
+            { tag_name: 'v1.2.0', target_commitish: 'main', draft: false, prerelease: false }
+        ]);
+        fake.setTags([{ name: 'v9.9.9' }]);
 
         const releases = new Releases(fake.octokit, anActionContext(), new RecordingLogger());
         result = await releases.getLatestReleaseVersion();
     });
 
-    it('should default to 0.0.0', () => {
-        result.version.should.equal('0.0.0');
+    it('should use the release version and ignore the tag', () => {
+        result.version.should.equal('1.2.0');
     });
 });

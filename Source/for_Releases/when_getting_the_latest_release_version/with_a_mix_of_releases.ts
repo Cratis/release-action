@@ -14,7 +14,7 @@ describe('when getting the latest release version from a mix of releases', () =>
 
     beforeEach(async () => {
         fake = aFakeOctokit();
-        fake.paginate.resolves([
+        fake.setReleases([
             { tag_name: 'v1.2.0', target_commitish: 'main', draft: false, prerelease: false },
             { tag_name: '2.0.0-beta.1', target_commitish: 'main', draft: false, prerelease: true },
             { tag_name: 'v1.4.0', target_commitish: 'main', draft: false, prerelease: false },

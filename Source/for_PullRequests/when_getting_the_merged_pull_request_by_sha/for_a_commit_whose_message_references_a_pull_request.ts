@@ -15,7 +15,7 @@ describe('when getting the merged pull request by sha for a commit whose message
     beforeEach(async () => {
         const sha = 'abcabcabcabcabcabcabcabcabcabcabcabcabca';
         const fake: FakeOctokit = aFakeOctokit();
-        fake.paginate.resolves([]);
+        fake.setAssociatedPullRequests([]);
         fake.getCommit.resolves({ data: { commit: { message: 'Merge pull request #11 from some/branch' } } });
         fake.pullsGet.resolves({
             data: aPullRequest({ number: 11, state: 'closed', merged: true, merged_at: '2026-07-23T10:00:00Z' })

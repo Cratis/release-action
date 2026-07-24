@@ -10,7 +10,7 @@ describe('when checking whether a release exists for a sha that none targets', (
 
     beforeEach(async () => {
         const fake: FakeOctokit = aFakeOctokit();
-        fake.paginate.resolves([
+        fake.setReleases([
             { tag_name: 'v1.0.0', target_commitish: 'somethingelse', draft: false, prerelease: false }
         ]);
 

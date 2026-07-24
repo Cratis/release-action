@@ -13,6 +13,10 @@ type ExistingRelease = {
     prerelease: boolean;
 };
 
+type ExistingTag = {
+    name: string;
+};
+
 // A fresh instance every time - `SemVer.inc()` mutates in place, so callers must never share one.
 const noReleasesYet = () => new SemVer('0.0.0');
 
@@ -27,23 +31,23 @@ export class Releases implements IReleases {
 
     async getLatestReleaseVersion(): Promise<SemVer> {
         try {
-            const releases = await this.getAll();
-
-            // Drafts have no tag in the repository yet, and this action never publishes prereleases - so
-            // neither can be the basis for the next release version.
-            const versions = releases
-                .filter(release => !release.draft && !release.prerelease)
-                .map(release => semver.parse(this.stripTagPrefix(release.tag_name)))
-                .filter((version): version is SemVer => version !== null && version.prerelease.length === 0)
-                .sort(semver.rcompare);
-
-            if (versions.length === 0) {
-                this._logger.info('The repository has no releases yet - starting from 0.0.0.');
-                return noReleasesYet();
+            const fromReleases = this.highest(this.releaseVersions(await this.getAll()));
+            if (fromReleases) {
+                this._logger.info(`Latest released version: ${fromReleases.version}`);
+                return fromReleases;
             }
 
-            this._logger.info(`Latest released version: ${versions[0].version}`);
-            return versions[0];
+            // Bootstrapping: a repository can have version tags before it has any GitHub releases - a floating
+            // `v1` alias, or version tags pushed without a release. Basing the first release on the highest
+            // such tag keeps the versioning continuous instead of restarting from 0.0.0.
+            const fromTags = this.highest(this.tagVersions(await this.getTags()));
+            if (fromTags) {
+                this._logger.info(`No releases yet - basing the next version on the latest tag: ${fromTags.version}`);
+                return fromTags;
+            }
+
+            this._logger.info('The repository has no releases or version tags yet - starting from 0.0.0.');
+            return noReleasesYet();
         } catch (ex) {
             this._logger.warn('Could not determine the latest released version - defaulting to 0.0.0.');
             this._logger.warn(ex);
@@ -100,6 +104,33 @@ export class Releases implements IReleases {
         }
     }
 
+    // Drafts have no tag in the repository yet, and this action never publishes prereleases, so neither can be
+    // the basis for the next release version.
+    private releaseVersions(releases: ExistingRelease[]): SemVer[] {
+        return releases
+            .filter(release => !release.draft && !release.prerelease)
+            .map(release => semver.parse(this.stripTagPrefix(release.tag_name)))
+            .filter((version): version is SemVer => version !== null && version.prerelease.length === 0);
+    }
+
+    private tagVersions(tags: ExistingTag[]): SemVer[] {
+        return tags
+            .map(tag => this.coerceTag(tag.name))
+            .filter((version): version is SemVer => version !== null);
+    }
+
+    private highest(versions: SemVer[]): SemVer | undefined {
+        return [...versions].sort(semver.rcompare)[0];
+    }
+
+    // Coerces a version-looking tag (`v1`, `v1.2`, `v1.2.3`) into a version. Tags that do not start with a
+    // number once the prefix is removed are ignored, so a `latest` or `release-candidate` tag is never
+    // mistaken for a version.
+    private coerceTag(tag: string): SemVer | null {
+        const stripped = this.stripTagPrefix(tag);
+        return /^\d/.test(stripped) ? semver.coerce(stripped) : null;
+    }
+
     private stripTagPrefix(tag: string): string {
         return tag.toLowerCase().startsWith(this._tagPrefix.toLowerCase())
             ? tag.substring(this._tagPrefix.length)
@@ -116,5 +147,17 @@ export class Releases implements IReleases {
             });
 
         return releases as unknown as ExistingRelease[];
+    }
+
+    private async getTags(): Promise<ExistingTag[]> {
+        const tags = await this._octokit.paginate(
+            this._octokit.repos.listTags,
+            {
+                owner: this._context.repo.owner,
+                repo: this._context.repo.repo,
+                per_page: 100
+            });
+
+        return tags as unknown as ExistingTag[];
     }
 }

@@ -11,7 +11,7 @@ describe('when getting the latest release version without any releases', () => {
 
     beforeEach(async () => {
         const fake: FakeOctokit = aFakeOctokit();
-        fake.paginate.resolves([]);
+        fake.setReleases([]);
 
         const releases = new Releases(fake.octokit, anActionContext(), new RecordingLogger());
         result = await releases.getLatestReleaseVersion();

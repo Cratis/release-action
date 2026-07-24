@@ -12,7 +12,7 @@ describe('when getting the latest release version with a custom tag prefix', () 
 
     beforeEach(async () => {
         const fake: FakeOctokit = aFakeOctokit();
-        fake.paginate.resolves([
+        fake.setReleases([
             { tag_name: 'release-1.2.0', target_commitish: 'main', draft: false, prerelease: false },
             { tag_name: 'release-1.4.0', target_commitish: 'main', draft: false, prerelease: false }
         ]);

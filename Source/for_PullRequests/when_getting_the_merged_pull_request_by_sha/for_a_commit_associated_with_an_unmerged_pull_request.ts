@@ -15,7 +15,7 @@ describe('when getting the merged pull request by sha for a commit associated on
     beforeEach(async () => {
         const sha = 'abcabcabcabcabcabcabcabcabcabcabcabcabca';
         const fake: FakeOctokit = aFakeOctokit();
-        fake.paginate.resolves([
+        fake.setAssociatedPullRequests([
             aPullRequest({ number: 7, state: 'closed', merged: false, merged_at: null, merge_commit_sha: sha })
         ]);
         fake.getCommit.resolves({ data: { commit: { message: 'Some regular commit' } } });

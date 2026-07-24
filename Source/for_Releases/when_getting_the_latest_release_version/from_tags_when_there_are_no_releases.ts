@@ -6,20 +6,25 @@ import { RecordingLogger } from '../../specs/RecordingLogger';
 import { FakeOctokit, aFakeOctokit } from '../../specs/aFakeOctokit';
 import { anActionContext } from '../../specs/anActionContext';
 
-// The very first run of the action on a repository has no releases API access or an empty repository - it must
-// still yield a usable starting point rather than throwing.
-describe('when getting the latest release version and the api call fails', () => {
+// Bootstrapping: a repository can carry a floating `v1` alias (and other version tags) before it has ever cut
+// a GitHub release. The next version is based on the highest such tag rather than restarting from 0.0.0.
+describe('when getting the latest release version from tags when there are no releases', () => {
     let result: SemVer;
 
     beforeEach(async () => {
         const fake: FakeOctokit = aFakeOctokit();
-        fake.paginateRejects(new Error('nope'));
+        fake.setReleases([]);
+        fake.setTags([
+            { name: 'v1' },
+            { name: 'v0.9.0' },
+            { name: 'not-a-version' }
+        ]);
 
         const releases = new Releases(fake.octokit, anActionContext(), new RecordingLogger());
         result = await releases.getLatestReleaseVersion();
     });
 
-    it('should default to 0.0.0', () => {
-        result.version.should.equal('0.0.0');
+    it('should coerce the highest version tag', () => {
+        result.version.should.equal('1.0.0');
     });
 });
