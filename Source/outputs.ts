@@ -1,19 +1,15 @@
 import { setOutput } from '@actions/core';
 
-export default {
-    setVersion(value: string) {
-        setOutput('version', value);
-    },
+import { ReleaseDecision } from './ReleaseDecision';
 
-    setShouldPublish(value: boolean) {
-        setOutput('should-publish', value);
-    },
-
-    setPrerelease(value: boolean) {
-        setOutput('prerelease', value);
-    },
-
-    setIsolatedForPullRequest(value: boolean) {
-        setOutput('isolated-for-pull-request', value);
-    }
+/**
+ * Sets the outputs of the action from the decision the main step arrived at.
+ */
+export const setOutputsFrom = (decision: ReleaseDecision): void => {
+    setOutput('version', decision.version);
+    setOutput('tag', decision.tag);
+    setOutput('should-publish', decision.shouldPublish);
+    setOutput('prerelease', decision.isPrerelease);
+    setOutput('isolated-for-pull-request', decision.isIsolatedForPullRequest);
+    setOutput('previous-version', decision.previousVersion);
 };

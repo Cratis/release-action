@@ -1,94 +1,113 @@
-import { context } from '@actions/github';
-import { exportVariable } from '@actions/core';
-import { Octokit } from '@octokit/rest';
-import { logger } from './logging';
-import inputs from './inputs';
-import outputs from './outputs';
-import { IPullRequests } from './IPullRequests';
-import { PullRequests } from './PullRequests';
-import { IVersions } from './IVersions';
-import { Versions } from './Versions';
-import { Tags } from './Tags';
 import { SemVer } from 'semver';
-import { VersionInfo } from './VersionInfo';
 
-const octokit = new Octokit({ auth: inputs.gitHubToken });
+import { IActionContext } from './IActionContext';
+import { IInputs } from './IInputs';
+import { ILogger } from './ILogger';
+import { IPullRequests } from './IPullRequests';
+import { IReleaseDecisions } from './IReleaseDecisions';
+import { IVersions } from './IVersions';
+import { ReleaseDecision, nothingToRelease } from './ReleaseDecision';
+import { isFromDependabot } from './PullRequest';
 
+/**
+ * The main step of the action. Works out which version - if any - this run should produce, and records that
+ * decision for the post step to act on.
+ */
 export class HandleVersion {
 
-    constructor(readonly _pullRequests: IPullRequests, readonly _versions: IVersions) {
+    constructor(
+        readonly _pullRequests: IPullRequests,
+        readonly _versions: IVersions,
+        readonly _decisions: IReleaseDecisions,
+        readonly _inputs: IInputs,
+        readonly _context: IActionContext,
+        readonly _logger: ILogger) {
     }
 
-    async run(): Promise<void> {
+    async run(): Promise<ReleaseDecision> {
+        let decision: ReleaseDecision;
+
         try {
-            let version: VersionInfo;
-            outputs.setPrerelease(false);
-            outputs.setIsolatedForPullRequest(false);
-            outputs.setShouldPublish(false);
-
-            if (!inputs.version || inputs.version === '') {
-                let pullRequest = await this._pullRequests.getMergedPullRequest();
-                if (!pullRequest) {
-                    logger.info('No merged PR found. Trying open pull request for current sha.');
-                    pullRequest = await this._pullRequests.getCurrentPullRequest();
-                    if (!pullRequest) {
-                        logger.error('No PR found.');
-                        return;
-                    }
-                }
-
-                if( pullRequest.user?.login.indexOf('dependabot') !== -1) {
-                    logger.info(`Dependabot (${pullRequest.user?.login}) PR detected. Skipping version creation.`);
-                    outputs.setShouldPublish(false);
-                    return;
-                }
-
-                if (!pullRequest.labels || pullRequest.labels.length === 0) {
-                    logger.info('No release labels found.');
-                    if (pullRequest.labels.length > 0) {
-                        logger.info('Labels associated with PR:');
-                        pullRequest.labels.forEach(_ => logger.info(`  - ${_}`));
-                    }
-                }
-
-                version = await this._versions.getNextVersionFor(pullRequest);
-                if (!version || !version.isRelease) return;
-            } else {
-                const semVer = new SemVer(inputs.version!);
-                version = new VersionInfo(semVer, false, false, false, true, semVer.prerelease.length !== 0, false, true);
-                logger.info('Using explicitly set version number');
-            }
-
-            outputs.setVersion(version.version.version);
-            outputs.setShouldPublish(true);
-            outputs.setPrerelease(version.isPrerelease);
-            outputs.setIsolatedForPullRequest(version.isIsolatedForPullRequest);
-
-            // Export version and metadata as environment variables for post step
-            // This ensures the post step uses the same version that was calculated here,
-            // preventing duplicate releases if the version calculation were to run again.
-            // Only release versions (isRelease=true) are exported, as the above check
-            // ensures this function only continues if version.isRelease is true.
-            exportVariable('OUTPUT_VERSION', version.version.version);
-            exportVariable('OUTPUT_VERSION_IS_PRERELEASE', String(version.isPrerelease));
-            exportVariable('OUTPUT_VERSION_IS_ISOLATED', String(version.isIsolatedForPullRequest));            
+            decision = await this.decide();
         } catch (ex) {
-            logger.error("Something went wrong");
-            logger.error(ex);
-
-            outputs.setShouldPublish(false);
+            this._logger.error('Something went wrong while working out the version to release.');
+            this._logger.error(ex);
+            decision = nothingToRelease;
         }
+
+        this._decisions.record(decision);
+        return decision;
+    }
+
+    private async decide(): Promise<ReleaseDecision> {
+        if (this._inputs.version) return this.decideFromExplicitVersion(this._inputs.version);
+        return await this.decideFromPullRequest();
+    }
+
+    private decideFromExplicitVersion(version: string): ReleaseDecision {
+        const semanticVersion = new SemVer(version);
+        this._logger.info(`Using explicitly set version number '${semanticVersion.version}'.`);
+
+        const releaseNotes = this._inputs.releaseNotes.trim();
+        if (releaseNotes === '') {
+            this._logger.info('No release notes provided - GitHub will generate them for the release.');
+        }
+
+        return {
+            shouldPublish: true,
+            shouldCreateRelease: true,
+            version: semanticVersion.version,
+            tag: this.tagFor(semanticVersion.version),
+            isPrerelease: semanticVersion.prerelease.length > 0,
+            isIsolatedForPullRequest: false,
+            releaseNotes,
+            previousVersion: '',
+            targetCommitish: this._context.sha
+        };
+    }
+
+    private async decideFromPullRequest(): Promise<ReleaseDecision> {
+        const pullRequest = await this.getPullRequest();
+        if (!pullRequest) return nothingToRelease;
+
+        if (isFromDependabot(pullRequest)) {
+            this._logger.info(
+                `Pull request #${pullRequest.number} is from Dependabot (${pullRequest.user?.login}) - nothing will be released for it.`);
+            return nothingToRelease;
+        }
+
+        const versionInfo = await this._versions.getNextVersionFor(pullRequest);
+        const version = versionInfo.version;
+        if (!version) return nothingToRelease;
+
+        return {
+            shouldPublish: true,
+
+            // A prerelease is an artifact belonging to a pull request, not a release of the repository.
+            shouldCreateRelease: !versionInfo.isPrerelease,
+            version: version.version,
+            tag: this.tagFor(version.version),
+            isPrerelease: versionInfo.isPrerelease,
+            isIsolatedForPullRequest: versionInfo.isIsolatedForPullRequest,
+            releaseNotes: pullRequest.body ?? '',
+            previousVersion: versionInfo.previousVersion,
+            targetCommitish: pullRequest.merge_commit_sha ?? this._context.sha
+        };
+    }
+
+    private tagFor(version: string): string {
+        return `${this._inputs.tagPrefix}${version}`;
+    }
+
+    private async getPullRequest() {
+        const merged = await this._pullRequests.getMergedPullRequest();
+        if (merged) return merged;
+
+        this._logger.info('No merged pull request found - falling back to the pull request of the current event.');
+
+        const current = await this._pullRequests.getCurrentPullRequest();
+        if (!current) this._logger.info('There is no pull request to work out a version from.');
+
+        return current;
     }
 }
-
-const handleVersion = new HandleVersion(
-    new PullRequests(octokit, context, logger),
-    new Versions(octokit, context, new Tags(octokit, context, logger), logger));
-
-handleVersion.run();
-
-export async function run(): Promise<void> {
-    await handleVersion.run();
-}
-
-
