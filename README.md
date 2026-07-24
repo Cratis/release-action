@@ -89,6 +89,10 @@ on:
   pull_request:
     types: [closed]
 
+# Creating the GitHub release needs a write-capable token. See "Permissions" below.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -123,12 +127,59 @@ jobs:
         run: dotnet nuget push --skip-duplicate '${{ env.NUGET_OUTPUT }}/*.nupkg' --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
 ```
 
+## Permissions
+
+Creating the GitHub release is a write to the repository, so the job's `GITHUB_TOKEN` needs `contents: write`.
+Grant it at the workflow level, or on the job that runs the action:
+
+```yml
+permissions:
+  contents: write
+```
+
+If your organization or repository defaults workflow permissions to read-only (the recommended hardening),
+a workflow with no `permissions:` block cannot create the release and the run fails with a 403 - so declare
+it explicitly rather than relying on the default. The action reads everything else it needs (pull requests,
+releases, tags) through this same token; no extra scopes are required. Reading is done entirely through the
+GitHub API, so no `fetch-depth` or tag checkout is needed.
+
+## Choosing a trigger
+
+Two triggers work, and the difference matters for repositories that accept **fork** pull requests:
+
+* `on: pull_request` with `types: [closed]` - simplest, and fine when every pull request comes from a branch
+  in the same repository. But a pull request from a **fork** runs with a **read-only** `GITHUB_TOKEN` (and no
+  secrets), even on merge, so creating the release fails with a 403 and publishing steps have no credentials.
+* `on: push` to the default branch - **recommended for public repositories or any repo that takes fork
+  contributions.** A push to the default branch always runs with a full-permission token. The action finds the
+  merged pull request (and its label) from the commit, so nothing else changes. This is how the action
+  releases itself - see [`.github/workflows/release.yml`](./.github/workflows/release.yml).
+
+```yml
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+```
+
+No `paths:` filter is needed with either trigger: the action releases nothing unless the merged pull request
+carries a release label, so unlabeled merges are already no-ops.
+
+## Manual runs
+
+The action is built to run automatically on merges, but you can also trigger it by hand with a
+`workflow_dispatch` that passes an explicit `version`. Leave `version` empty (or at the `0.0.0` placeholder the
+publish templates ship) and the action releases nothing - it never cuts a `0.0.0` release from an unfilled
+default. Pass a real version to force a release; pass `release-notes` too, or GitHub generates the notes.
+
 ## Inputs
 
 | Property | Description | Default value | Required |
 | -------- | ----------- | ------------- | -------- |
 | github-token | Token for the GitHub API calls the action makes (reading pull requests, creating the release). | ${{ github.token }} | - |
-| version | Version to release. When set to a non-empty value it overrides working the version out from the pull request and its labels. | | - |
+| version | Version to release. When set to a real version it overrides working the version out from the pull request and its labels. Empty (or the `0.0.0` placeholder) means "work it out from the pull request" and never forces a release. | | - |
 | release-notes | Release notes to use when creating the release. When omitted, GitHub's generated notes are used. | | - |
 | tag-prefix | Prefix put in front of the version to form the release tag. | `v` | - |
 | major-labels | Comma-separated label names that mean a major version bump. | `major` | - |
