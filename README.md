@@ -165,4 +165,6 @@ This action releases itself. Label a pull request `major`, `minor` or `patch`, a
 version, creates the `vX.Y.Z` GitHub release, and moves the floating `vX` and `vX.Y` tags to the release so
 that consumers tracking `@v1` pick it up. A merge without one of those labels releases nothing.
 
-There is nothing to run by hand - no tags to push and no version to bump manually.
+The first release bootstraps automatically from the highest existing version tag (a floating `v1`, say), so
+versioning stays continuous rather than restarting from `0.0.0`. There is nothing to run by hand - no tags to
+push and no version to bump manually.

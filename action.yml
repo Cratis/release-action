@@ -45,6 +45,10 @@ outputs:
   previous-version:
     description: "The version the new version was bumped from, or empty when there is no predecessor"
 
+branding:
+  icon: "tag"
+  color: "purple"
+
 runs:
   using: "node24"
   main: "dist/main/index.js"
