@@ -13,6 +13,9 @@ labels, adhering to [semantic versioning version 2](https://semver.org):
 | minor | New capabilities have been added |
 | patch | Bug fixes |
 
+For a merged pull request the new version is the latest release - or the highest existing version tag when
+there are no releases yet - incremented according to the label.
+
 If none of these labels are present, it does not consider this to be a release: no GitHub release is produced
 and `should-publish` is `false`.
 
@@ -102,12 +105,11 @@ jobs:
       - name: Build .NET
         run: dotnet build --configuration Release
 
+      # No inputs are needed - the version comes from the merged pull request's label. Optionally set
+      # `version:` and `release-notes:` to override that.
       - name: Release
         id: release
         uses: cratis/release-action@v1
-        with:
-          version: 'Optional SemVer'
-          release-notes: 'Optional descriptive release notes'
 
       - name: Remove any existing artifacts
         run: rm -rf ${{ env.NUGET_OUTPUT }}
@@ -125,8 +127,8 @@ jobs:
 
 | Property | Description | Default value | Required |
 | -------- | ----------- | ------------- | -------- |
-| github-token | The GitHub token to use for any GitHub actions | ${{ github.token }} | - |
-| version | Version number to use when creating the release. When set to a non-empty value it overrides working the version out from the pull request. | | - |
+| github-token | Token for the GitHub API calls the action makes (reading pull requests, creating the release). | ${{ github.token }} | - |
+| version | Version to release. When set to a non-empty value it overrides working the version out from the pull request and its labels. | | - |
 | release-notes | Release notes to use when creating the release. When omitted, GitHub's generated notes are used. | | - |
 | tag-prefix | Prefix put in front of the version to form the release tag. | `v` | - |
 | major-labels | Comma-separated label names that mean a major version bump. | `major` | - |

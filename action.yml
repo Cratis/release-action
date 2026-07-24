@@ -1,13 +1,13 @@
 name: "Release"
-description: "Generates a new version number based on PR labels. Packages the repository up and puts GitHub release."
+description: "Works out a semantic version from a merged pull request's label and creates the GitHub release."
 
 inputs:
   github-token:
-    description: "GitHub token to use within the action when it is performing writing. Defaults to the GITHUB_TOKEN."
+    description: "Token used for the GitHub API calls the action makes - reading pull requests and creating the release. Defaults to the workflow's GITHUB_TOKEN."
     required: false
     default: ${{ github.token }}
   version:
-    description: "Version number to use when creating the release. If there is a value and the value is not an empty string, it will override the logic of deducting the version number based on tags on the PR."
+    description: "Version to release. When set to a non-empty value it overrides working the version out from the pull request and its labels."
     required: false
     default: ""
   release-notes:
