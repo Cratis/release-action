@@ -1,8 +1,9 @@
 name: Release
 
-# Dogfoods this action to release itself: on every merge to main it works out the version from the merged
-# pull request's label, creates the GitHub release, and moves the floating major/minor tags so consumers
-# tracking `@v1` (or `@v1.2`) pick the release up.
+# Dogfoods this action to release itself. On every merge to main it works out the version from the merged
+# pull request's label, tags a lean commit (only the files a consumer needs to run the action), and creates
+# the GitHub release - moving the floating major/minor aliases so consumers tracking `@v1` (or `@v1.2`) pick
+# it up.
 #
 # Triggering on push (rather than the pull_request closed event) is deliberate: push to main always runs with
 # a full-permission token, including for pull requests from forks. The action finds the merged pull request
@@ -28,32 +29,44 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # Computes the version and records the decision. Its post step, at the end of the job, creates the
+      # GitHub release - which attaches to whichever tag the next step has already pushed.
       - name: Release
         id: release
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Only the floating alias tags are moved here - never a branch and never the immutable vX.Y.Z tag the
-      # release itself is cut with. Alias tags are meant to move; that is how action versioning works.
-      - name: Move floating major and minor tags
+      # A consumer of a JavaScript action only ever needs action.yml and the dist bundle it points at, so the
+      # release tags point at a commit whose tree is just those (plus LICENSE and README). This keeps the
+      # ~4 MB of source, specs and tooling out of every consumer's checkout. The lean commit is parented to the
+      # merge commit, so its provenance is intact.
+      #
+      # Pushing the tags before the action's post step runs means the release it creates attaches to the lean
+      # vX.Y.Z tag rather than the full-source merge commit. Only the floating aliases are force-updated; the
+      # immutable vX.Y.Z tag is created once.
+      - name: Tag the release leanly
         if: steps.release.outputs.should-publish == 'true' && steps.release.outputs.prerelease == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
           VERSION: ${{ steps.release.outputs.version }}
-          SHA: ${{ github.sha }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           major="v${VERSION%%.*}"
           minor="v$(printf '%s' "$VERSION" | cut -d. -f1-2)"
-          for tag in "$major" "$minor"; do
-            # Singular /git/ref/ is an exact match (404 when missing); the plural /git/refs/ does prefix
-            # matching and would treat v1 as present whenever any v1.x tag exists.
-            if gh api "repos/${REPO}/git/ref/tags/${tag}" >/dev/null 2>&1; then
-              gh api -X PATCH "repos/${REPO}/git/refs/tags/${tag}" -f sha="${SHA}" -F force=true >/dev/null
-            else
-              gh api -X POST "repos/${REPO}/git/refs" -f ref="refs/tags/${tag}" -f sha="${SHA}" >/dev/null
-            fi
-            echo "Pointed ${tag} at ${SHA}"
+
+          # Build a commit whose tree is only what is needed to run the action.
+          export GIT_INDEX_FILE="${RUNNER_TEMP}/lean-index"
+          rm -f "$GIT_INDEX_FILE"
+          git read-tree --empty
+          git add -- action.yml dist LICENSE README.md
+          tree="$(git write-tree)"
+          commit="$(git commit-tree "$tree" -p "$GITHUB_SHA" -m "Release ${TAG}")"
+
+          for ref in "$TAG" "$major" "$minor"; do
+            git push --force origin "${commit}:refs/tags/${ref}"
+            echo "Pointed ${ref} at lean commit ${commit}"
           done

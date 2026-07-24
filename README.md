@@ -164,8 +164,13 @@ Specs live next to the source in `for_*/when_*/` folders and follow the Cratis s
 
 This action releases itself. Label a pull request `major`, `minor` or `patch`, and when it is merged the
 [Release workflow](./.github/workflows/release.yml) runs the action on the merge commit: it works out the next
-version, creates the `vX.Y.Z` GitHub release, and moves the floating `vX` and `vX.Y` tags to the release so
-that consumers tracking `@v1` pick it up. A merge without one of those labels releases nothing.
+version, creates the `vX.Y.Z` GitHub release, and moves the floating `vX` and `vX.Y` tags to it so that
+consumers tracking `@v1` pick it up. A merge without one of those labels releases nothing.
+
+The release tags point at a **lean commit** whose tree is only what is needed to run the action -
+`action.yml`, the `dist/` bundle, `LICENSE` and `README.md`. The source, specs and tooling (about 4 MB,
+including the Yarn release) are not shipped to consumers, so a `uses:` checkout is roughly 2.7 MB instead of
+6.6 MB. The lean commit is parented to the merge commit, so its provenance is intact.
 
 The first release bootstraps automatically from the highest existing version tag (a floating `v1`, say), so
 versioning stays continuous rather than restarting from `0.0.0`. There is nothing to run by hand - no tags to
