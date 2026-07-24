@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Computes the version and records the decision. Its post step, at the end of the job, creates the
       # GitHub release - which attaches to whichever tag the next step has already pushed.

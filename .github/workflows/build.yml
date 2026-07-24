@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Corepack must be enabled before setup-node, so that setup-node's package-manager probe resolves the
       # Yarn version pinned in package.json rather than the runner's global Yarn.
@@ -29,7 +29,7 @@ jobs:
         run: corepack enable
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version-file: ".node-version"
 
