@@ -23,13 +23,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # Corepack must be enabled before setup-node, so that setup-node's package-manager probe resolves the
+      # Yarn version pinned in package.json rather than the runner's global Yarn.
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version-file: ".node-version"
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install --immutable
