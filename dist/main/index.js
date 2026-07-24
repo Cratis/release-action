@@ -39699,6 +39699,14 @@ class HandleVersion {
         return await this.decideFromPullRequest();
     }
     decideFromExplicitVersion(version) {
+        // `0.0.0` is the placeholder default shipped in the `workflow_dispatch` inputs of the publish
+        // templates. It is never a version anyone means to release - the first real release bumps up from
+        // `0.0.0` to `0.0.1`/`0.1.0`/`1.0.0`. Treating it as nothing-to-release means a manual run left at the
+        // default can never cut a bogus `0.0.0` release; provide a real version to force one.
+        if (version === '0.0.0') {
+            this._logger.info("The version input is the placeholder '0.0.0' - nothing will be released. Provide a real version to force a release.");
+            return nothingToRelease;
+        }
         const semanticVersion = new semver.SemVer(version);
         this._logger.info(`Using explicitly set version number '${semanticVersion.version}'.`);
         const releaseNotes = this._inputs.releaseNotes.trim();

@@ -7,7 +7,7 @@ inputs:
     required: false
     default: ${{ github.token }}
   version:
-    description: "Version to release. When set to a non-empty value it overrides working the version out from the pull request and its labels."
+    description: "Version to release. When set to a real version it overrides working the version out from the pull request and its labels. Empty - or the '0.0.0' placeholder the publish templates default to - means 'work it out from the pull request' and never forces a release."
     required: false
     default: ""
   release-notes:
