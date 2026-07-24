@@ -1,42 +1,31 @@
 {
     "compilerOptions": {
-        "target": "es6",
-        "module": "CommonJS",
+        "target": "es2023",
         "lib": [
-            "es6"
+            "es2023"
         ],
-        "rootDir": "./Source",
-        "outDir": "./dist",
-        "declaration": true,
-        "declarationMap": true,
-        "sourceMap": true,
-        "composite": true,
+        "module": "preserve",
+        "types": [
+            "node"
+        ],
         "strict": true,
-        "allowJs": false,
-        "checkJs": false,
-        "noEmit": false,
+        "noEmit": true,
         "pretty": true,
-        "noImplicitAny": false,
         "skipLibCheck": true,
-        "moduleResolution": "node",
-        "esModuleInterop": true,
-        "strictNullChecks": true,
-        "resolveJsonModule": true,
-        "downlevelIteration": true,
-        "experimentalDecorators": true,
-        "emitDecoratorMetadata": true,
+        "isolatedModules": true,
+        "forceConsistentCasingInFileNames": true,
         "noImplicitReturns": true,
         "noFallthroughCasesInSwitch": true,
-        "stripInternal": true,
-        "allowSyntheticDefaultImports": true,
-        "forceConsistentCasingInFileNames": true,
-        "assumeChangesOnlyAffectDirectDependencies": true,
-        "alwaysStrict": true,
-        "preserveConstEnums": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
         "newLine": "lf"
     },
+    "include": [
+        "Source/**/*.ts",
+        "*.config.ts"
+    ],
     "exclude": [
-        "**/dist",
+        "dist",
         "node_modules"
     ]
 }

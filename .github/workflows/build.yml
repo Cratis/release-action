@@ -4,8 +4,16 @@ on:
   push:
     branches:
       - "**"
-    paths:
-      - "Source/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -13,12 +21,28 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup node v14
-        uses: actions/setup-node@v1
+      - name: Setup Node
+        uses: actions/setup-node@v5
         with:
-          node-version: 14.x
-          registry-url: "https://registry.npmjs.org"
-      - run: yarn
-      - run: yarn release
+          node-version-file: ".node-version"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Typecheck, lint, test and build
+        run: yarn ci
+
+      # The action runs from the committed bundle, so a stale dist/ means the published action does not
+      # match the source it was built from.
+      - name: Verify dist is up to date
+        run: |
+          if [ -n "$(git status --porcelain dist)" ]; then
+            echo "::error::dist/ is out of date - run 'yarn build' and commit the result."
+            git --no-pager diff --stat -- dist
+            exit 1
+          fi

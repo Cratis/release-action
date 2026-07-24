@@ -1,32 +1,56 @@
 name: "Release"
-description: "Generates a new version number based on PR labels. Packages the repository up and puts GitHub release."
+description: "Works out a semantic version from a merged pull request's label and creates the GitHub release."
 
 inputs:
   github-token:
-    description: "GitHub token to use within the action when it is performing writing. Defaults to the GITHUB_TOKEN."
+    description: "Token used for the GitHub API calls the action makes - reading pull requests and creating the release. Defaults to the workflow's GITHUB_TOKEN."
     required: false
     default: ${{ github.token }}
   version:
-    description: "Version number to use when creating the release. If there is a value and the value is not an empty string, it will override the logic of deducting the version number based on tags on the PR."
+    description: "Version to release. When set to a non-empty value it overrides working the version out from the pull request and its labels."
     required: false
     default: ""
   release-notes:
     description: "Release notes to use when creating the release."
     required: false
     default: ""
+  tag-prefix:
+    description: "Prefix put in front of the version to form the release tag."
+    required: false
+    default: "v"
+  major-labels:
+    description: "Comma-separated label names that mean a major version bump."
+    required: false
+    default: "major"
+  minor-labels:
+    description: "Comma-separated label names that mean a minor version bump."
+    required: false
+    default: "minor"
+  patch-labels:
+    description: "Comma-separated label names that mean a patch version bump."
+    required: false
+    default: "patch"
 
 outputs:
   should-publish:
     description: "Boolean telling whether or not a publish should be done"
   version:
     description: "Version number to publish with"
+  tag:
+    description: "The release tag (the version with the tag prefix, e.g. v1.2.3)"
   prerelease:
     description: "Boolean telling whether or not it is a prerelease"
   isolated-for-pull-request:
     description: "Boolean telling whether or not it should be an isolated release for the pull request only"
+  previous-version:
+    description: "The version the new version was bumped from, or empty when there is no predecessor"
+
+branding:
+  icon: "tag"
+  color: "purple"
 
 runs:
-  using: "node20"
-  main: "dist/HandleVersion/index.js"
-  post: "dist/HandleRelease/index.js"
+  using: "node24"
+  main: "dist/main/index.js"
+  post: "dist/post/index.js"
   post-if: "success()"
