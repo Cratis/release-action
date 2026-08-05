@@ -39634,6 +39634,12 @@ class ResolvedIssues {
     // A '#' preceded by anything other than '(' is prose, and an owner/repo prefix makes it another repository's
     // issue. Both are excluded by requiring the '(' to sit immediately before the '#'.
     static reference = /(?<![\w/-])\(#(\d+)\)/g;
+    // Release notes carry code - a fenced example of a workflow, an inline mention of the very syntax this class
+    // reads. A reference written inside either is being shown, not made, and closing on it would close whatever
+    // issue the example's number happens to name. The notes of this feature's own release are the proof: they
+    // document the form by writing `(#123)`, and #123 in this repository is an unrelated dependency bump.
+    static fencedCode = /^[ \t]*(`{3,}|~{3,})[\s\S]*?^[ \t]*\1[ \t]*$/gm;
+    static inlineCode = /(`+)[^\n]*?\1/g;
     /**
      * Gets the issue numbers the notes say the release resolves, in ascending order and without duplicates.
      * @param notes The release notes to read.
@@ -39643,8 +39649,11 @@ class ResolvedIssues {
         if (!notes) {
             return [];
         }
+        const prose = notes
+            .replace(ResolvedIssues.fencedCode, '')
+            .replace(ResolvedIssues.inlineCode, '');
         const found = new Set();
-        for (const match of notes.matchAll(ResolvedIssues.reference)) {
+        for (const match of prose.matchAll(ResolvedIssues.reference)) {
             const number = Number(match[1]);
             // '(#0)' is not an issue, and a number this large is a typo rather than a reference - closing on
             // either would act on something the author did not name.

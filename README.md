@@ -177,6 +177,10 @@ That form is the whole of the contract, and everything looser is deliberately le
 | `- Fixed it. Related: #123` | no | same - a mention is not a delivery |
 | `- Fixed it (Cratis/Screenplay#32)` | no | another repository's, out of token reach |
 
+A reference inside code - a fenced example, or an inline mention of the syntax itself - is being shown rather
+than made, and is not read. These very notes are the reason: they document the form by writing it out, and the
+number in that example belongs to an unrelated issue.
+
 An issue that is already closed is left exactly as it was, and a number that turns out to be a pull request is
 skipped - a release does not close a pull request.
 

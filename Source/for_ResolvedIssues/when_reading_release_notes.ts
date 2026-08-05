@@ -46,4 +46,18 @@ describe('when reading which issues release notes resolve', () => {
     it('should read nothing from empty notes', () => {
         ResolvedIssues.in('').should.eql([]);
     });
+
+    // Notes that document this very feature write the form out to explain it. Reading a reference that is being
+    // shown rather than made would close whatever issue the example's number happens to name.
+    it('should not read a reference shown inside inline code', () => {
+        ResolvedIssues.in('- Only a bullet ending in `(#123)` counts').should.eql([]);
+    });
+
+    it('should not read a reference shown inside a fenced block', () => {
+        ResolvedIssues.in('- Added the thing (#7)\n\n```markdown\n- Fixed it (#123)\n```\n').should.eql([7]);
+    });
+
+    it('should still read a real reference on a line that also carries code', () => {
+        ResolvedIssues.in('- Renamed `IObserver` to `IReactor` (#42)').should.eql([42]);
+    });
 });
