@@ -39616,7 +39616,48 @@ const dist_src_Octokit = Octokit.plugin(requestLog, legacyRestEndpointMethods, p
 );
 
 
+;// CONCATENATED MODULE: ./Source/ResolvedIssues.ts
+/**
+ * The issue numbers a set of release notes says the release resolves.
+ *
+ * Only the trailing parenthesized form the pull request template mandates is read - a bullet ends with the issue
+ * it delivers, as in `- Fixed the thing (#123)`. Prose refers to issues without parentheses ("see #123", "related
+ * to #123", "blocked on #123"), and reading those would close issues a release merely mentions. The parentheses
+ * are what distinguishes "this bullet delivers that issue" from "this bullet talks about it", so they are the
+ * whole of the contract and nothing looser is accepted.
+ *
+ * Cross-repository references (`Cratis/Screenplay#32`) are deliberately not read. They are common in these notes
+ * and they name an issue in another repository, which this action has neither the token scope nor the business to
+ * close.
+ */
+class ResolvedIssues {
+    // A '#' preceded by anything other than '(' is prose, and an owner/repo prefix makes it another repository's
+    // issue. Both are excluded by requiring the '(' to sit immediately before the '#'.
+    static reference = /(?<![\w/-])\(#(\d+)\)/g;
+    /**
+     * Gets the issue numbers the notes say the release resolves, in ascending order and without duplicates.
+     * @param notes The release notes to read.
+     * @returns The issue numbers.
+     */
+    static in(notes) {
+        if (!notes) {
+            return [];
+        }
+        const found = new Set();
+        for (const match of notes.matchAll(ResolvedIssues.reference)) {
+            const number = Number(match[1]);
+            // '(#0)' is not an issue, and a number this large is a typo rather than a reference - closing on
+            // either would act on something the author did not name.
+            if (Number.isSafeInteger(number) && number > 0) {
+                found.add(number);
+            }
+        }
+        return [...found].sort((left, right) => left - right);
+    }
+}
+
 ;// CONCATENATED MODULE: ./Source/HandleRelease.ts
+
 /**
  * The post step of the action. Creates the GitHub release for the decision the main step recorded.
  *
@@ -39626,13 +39667,17 @@ const dist_src_Octokit = Octokit.plugin(requestLog, legacyRestEndpointMethods, p
 class HandleRelease {
     _releases;
     _decisions;
+    _issues;
     _context;
     _logger;
-    constructor(_releases, _decisions, _context, _logger) {
+    _closeResolvedIssues;
+    constructor(_releases, _decisions, _issues, _context, _logger, _closeResolvedIssues = true) {
         this._releases = _releases;
         this._decisions = _decisions;
+        this._issues = _issues;
         this._context = _context;
         this._logger = _logger;
+        this._closeResolvedIssues = _closeResolvedIssues;
     }
     async run() {
         const decision = this._decisions.read();
@@ -39669,6 +39714,66 @@ class HandleRelease {
             targetCommitish
         });
         this._logger.info('GitHub release created.');
+        await this.closeResolvedIssues(decision);
+    }
+    /**
+     * Closes the issues the release notes say this release resolves.
+     *
+     * Done after the release exists, and never allowed to fail the step. The release is the thing that had to
+     * happen; an issue left open because the API refused is a tidiness problem, while a step that fails after
+     * publishing makes the run look as though nothing shipped.
+     */
+    async closeResolvedIssues(decision) {
+        if (!this._closeResolvedIssues) {
+            return;
+        }
+        const resolved = ResolvedIssues.in(decision.releaseNotes);
+        if (resolved.length === 0) {
+            return;
+        }
+        this._logger.info(`The release notes name ${resolved.length} issue(s) as resolved: ${resolved.map(_ => `#${_}`).join(', ')}.`);
+        for (const issue of resolved) {
+            try {
+                const closed = await this._issues.close(issue, `Closed by release **${decision.tag}**.`);
+                if (closed) {
+                    this._logger.info(`Closed #${issue}.`);
+                }
+            }
+            catch (ex) {
+                this._logger.warn(`Could not close #${issue} - leaving it open.`);
+                this._logger.warn(ex);
+            }
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./Source/Issues.ts
+class Issues {
+    _octokit;
+    _context;
+    _logger;
+    constructor(_octokit, _context, _logger) {
+        this._octokit = _octokit;
+        this._context = _context;
+        this._logger = _logger;
+    }
+    async close(number, comment) {
+        const { owner, repo } = this._context.repo;
+        // Asked for first so that an issue somebody already closed by hand is left exactly as they left it,
+        // rather than gaining a comment saying a release closed it. A pull request shares the issue number
+        // space and is excluded for the same reason - a release does not close a pull request.
+        const existing = await this._octokit.rest.issues.get({ owner, repo, issue_number: number });
+        if (existing.data.state !== 'open') {
+            this._logger.info(`Issue #${number} is already closed - leaving it alone.`);
+            return false;
+        }
+        if (existing.data.pull_request) {
+            this._logger.info(`#${number} is a pull request rather than an issue - leaving it alone.`);
+            return false;
+        }
+        await this._octokit.rest.issues.createComment({ owner, repo, issue_number: number, body: comment });
+        await this._octokit.rest.issues.update({ owner, repo, issue_number: number, state: 'closed', state_reason: 'completed' });
+        return true;
     }
 }
 
@@ -39855,6 +39960,11 @@ const inputs = {
     },
     get patchLabels() {
         return parseLabels(getInput('patch-labels'), 'patch');
+    },
+    get closeResolvedIssues() {
+        // Absent means on. The references are already in the notes and already mean "this release delivers
+        // that issue", so the useful default is to act on them; a repository that does not want it says so.
+        return getInput('close-resolved-issues').trim().toLowerCase() !== 'false';
     }
 };
 
@@ -39897,11 +40007,12 @@ const logger = {
 
 
 
+
 const run = async () => {
     // GITHUB_API_URL is always set by the runner (to https://api.github.com on github.com, or the enterprise
     // host on GitHub Enterprise Server), so honoring it keeps the action working on both.
     const octokit = new dist_src_Octokit({ auth: inputs.gitHubToken || undefined, baseUrl: process.env.GITHUB_API_URL || undefined });
-    const handleRelease = new HandleRelease(new Releases(octokit, github_context, logger, inputs.tagPrefix), new ReleaseDecisions(), github_context, logger);
+    const handleRelease = new HandleRelease(new Releases(octokit, github_context, logger, inputs.tagPrefix), new ReleaseDecisions(), new Issues(octokit, github_context, logger), github_context, logger, inputs.closeResolvedIssues);
     await handleRelease.run();
 };
 run().catch(ex => setFailed(ex instanceof Error ? ex : String(ex)));
