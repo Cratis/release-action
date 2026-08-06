@@ -140,8 +140,49 @@ permissions:
 If your organization or repository defaults workflow permissions to read-only (the recommended hardening),
 a workflow with no `permissions:` block cannot create the release and the run fails with a 403 - so declare
 it explicitly rather than relying on the default. The action reads everything else it needs (pull requests,
-releases, tags) through this same token; no extra scopes are required. Reading is done entirely through the
-GitHub API, so no `fetch-depth` or tag checkout is needed.
+releases, tags) through this same token. Reading is done entirely through the GitHub API, so no `fetch-depth`
+or tag checkout is needed.
+
+Closing resolved issues additionally needs `issues: write`:
+
+```yaml
+permissions:
+  contents: write
+  issues: write
+```
+
+Without it the release is still created; the action logs a warning per issue it could not close and carries on,
+because a release that succeeded must never be reported as a failed run. Set `close-resolved-issues: false` to
+turn the behavior off instead of granting the scope.
+
+## Closing the issues a release resolves
+
+When the release notes say a release delivers an issue, the action closes that issue and comments with the
+release tag.
+
+Only the trailing parenthesized form is read - a note bullet **ending** in `(#123)`:
+
+```markdown
+## Fixed
+
+- Roles declared with the constructor form are read (#2381)
+```
+
+That form is the whole of the contract, and everything looser is deliberately left alone:
+
+| Written as | Read? | Why |
+| ---------- | ----- | --- |
+| `- Fixed it (#123)` | yes | the bullet says the release delivers it |
+| `- Fixed it, see #123` | no | prose refers to an issue, it does not deliver it |
+| `- Fixed it. Related: #123` | no | same - a mention is not a delivery |
+| `- Fixed it (Cratis/Screenplay#32)` | no | another repository's, out of token reach |
+
+A reference inside code - a fenced example, or an inline mention of the syntax itself - is being shown rather
+than made, and is not read. These very notes are the reason: they document the form by writing it out, and the
+number in that example belongs to an unrelated issue.
+
+An issue that is already closed is left exactly as it was, and a number that turns out to be a pull request is
+skipped - a release does not close a pull request.
 
 ## Choosing a trigger
 
@@ -185,6 +226,7 @@ default. Pass a real version to force a release; pass `release-notes` too, or Gi
 | major-labels | Comma-separated label names that mean a major version bump. | `major` | - |
 | minor-labels | Comma-separated label names that mean a minor version bump. | `minor` | - |
 | patch-labels | Comma-separated label names that mean a patch version bump. | `patch` | - |
+| close-resolved-issues | Whether to close the issues the release notes name as resolved. Needs `issues: write`. | `true` | - |
 
 ## Outputs
 

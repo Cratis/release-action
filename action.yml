@@ -30,6 +30,10 @@ inputs:
     description: "Comma-separated label names that mean a patch version bump."
     required: false
     default: "patch"
+  close-resolved-issues:
+    description: "Whether to close the issues the release notes name as resolved. Only the trailing parenthesized form is read - a note bullet ending in '(#123)'. Prose mentions and cross-repository references are left alone. Set to 'false' to turn it off. Needs a token with 'issues: write'."
+    required: false
+    default: "true"
 
 outputs:
   should-publish:

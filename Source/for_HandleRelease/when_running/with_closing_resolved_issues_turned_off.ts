@@ -3,25 +3,32 @@ import { beforeEach, describe, it } from 'vitest';
 import { HandleRelease } from '../../HandleRelease';
 import { RecordingLogger } from '../../specs/RecordingLogger';
 import { anActionContext } from '../../specs/anActionContext';
-import { someIssues } from '../../specs/someIssues';
+import { StubbedIssues, someIssues } from '../../specs/someIssues';
 import { StubbedReleases, someReleases } from '../../specs/someReleases';
 import { aDecisionToRelease, aRecordedDecision } from '../given/a_recorded_decision';
 
-describe('when running the post step with a decision not to create a release', () => {
+describe('when running the post step with closing resolved issues turned off', () => {
+    let issues: StubbedIssues;
     let releases: StubbedReleases;
 
     beforeEach(async () => {
+        issues = someIssues();
         releases = someReleases();
 
         await new HandleRelease(
             releases,
-            aRecordedDecision(aDecisionToRelease({ shouldCreateRelease: false })),
-            someIssues(),
+            aRecordedDecision(aDecisionToRelease({ releaseNotes: '- Fixed the thing (#123)' })),
+            issues,
             anActionContext(),
-            new RecordingLogger()).run();
+            new RecordingLogger(),
+            false).run();
     });
 
-    it('should not create a release', () => {
-        releases.create.called.should.be.false;
+    it('should close nothing', () => {
+        issues.close.called.should.be.false;
+    });
+
+    it('should still create the release', () => {
+        releases.create.calledOnce.should.be.true;
     });
 });

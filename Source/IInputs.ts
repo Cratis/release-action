@@ -7,4 +7,9 @@ export interface IInputs extends IReleaseOptions {
     readonly gitHubToken: string;
     readonly version: string;
     readonly releaseNotes: string;
+
+    /**
+     * Whether to close the issues the release notes name as resolved.
+     */
+    readonly closeResolvedIssues: boolean;
 }
