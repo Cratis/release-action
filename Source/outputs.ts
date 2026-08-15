@@ -12,4 +12,5 @@ export const setOutputsFrom = (decision: ReleaseDecision): void => {
     setOutput('prerelease', decision.isPrerelease);
     setOutput('isolated-for-pull-request', decision.isIsolatedForPullRequest);
     setOutput('previous-version', decision.previousVersion);
+    setOutput('reason', decision.reason);
 };

@@ -33,7 +33,8 @@ describe('when reading back a recorded decision', () => {
             isIsolatedForPullRequest: false,
             releaseNotes: 'Notes with "quotes" and\nnewlines',
             previousVersion: '1.2.3',
-            targetCommitish: 'abcabcabcabcabcabcabcabcabcabcabcabcabca'
+            targetCommitish: 'abcabcabcabcabcabcabcabcabcabcabcabcabca',
+            reason: 'release'
         };
 
         const decisions = new ReleaseDecisions();

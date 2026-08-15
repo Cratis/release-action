@@ -11,6 +11,7 @@ const orDash = (value: string): string => (value !== '' ? value : '—');
  * wording can be asserted without any GitHub environment.
  */
 export const summaryRowsFor = (decision: ReleaseDecision): [string, string][] => [
+    ['Reason', decision.reason],
     ['Should publish', yesNo(decision.shouldPublish)],
     ['Create release', yesNo(decision.shouldCreateRelease)],
     ['Version', orDash(decision.version)],

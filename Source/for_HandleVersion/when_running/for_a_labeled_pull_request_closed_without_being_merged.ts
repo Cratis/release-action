@@ -29,4 +29,8 @@ describe('when running the main step for a labeled pull request closed without b
     it('should not produce a version', () => {
         decision.version.should.equal('');
     });
+
+    it('should say that it was never merged', () => {
+        decision.reason.should.equal('not-merged');
+    });
 });

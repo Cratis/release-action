@@ -38,4 +38,9 @@ describe('when setting the outputs', () => {
     it('should write the previous version', () => {
         written.should.contain('previous-version');
     });
+
+    it('should write the reason', () => {
+        written.should.contain('reason');
+        written.should.contain('release');
+    });
 });

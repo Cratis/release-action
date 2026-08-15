@@ -15,7 +15,7 @@ describe('when writing the summary without a summary sink', () => {
         delete process.env.GITHUB_STEP_SUMMARY;
 
         try {
-            await writeSummary(nothingToRelease, new RecordingLogger());
+            await writeSummary(nothingToRelease('no-label'), new RecordingLogger());
         } catch (ex) {
             thrown = ex;
         }

@@ -37,4 +37,8 @@ describe('when running the main step for a labeled pull request that was merged'
     it('should point the release at the merge commit', () => {
         decision.targetCommitish.should.equal('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     });
+
+    it('should say that it is a release', () => {
+        decision.reason.should.equal('release');
+    });
 });

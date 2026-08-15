@@ -162,10 +162,20 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 ```
 
 No `paths:` filter is needed with either trigger: the action releases nothing unless the merged pull request
 carries a release label, so unlabeled merges are already no-ops.
+
+`cancel-in-progress: false` is not optional when moving to `push`. Under `pull_request` every run has its own
+`github.ref` (`refs/pull/<number>/merge`), so a concurrency group keyed on it only ever cancels re-runs of the
+same pull request. On `push` every merge shares `refs/heads/main`, so `cancel-in-progress: true` means the next
+merge cancels the release in flight - possibly after it has tagged and cut the release but before it has
+finished publishing.
 
 ## Manual runs
 
@@ -196,6 +206,58 @@ default. Pass a real version to force a release; pass `release-notes` too, or Gi
 | prerelease | Boolean telling whether or not it is a prerelease |
 | isolated-for-pull-request | Boolean telling whether or not it should be an isolated release for the pull request only |
 | previous-version | The version the new version was bumped from, or empty when there is no predecessor |
+| reason | Why the action decided what it decided - see [Acting on the reason](#acting-on-the-reason) |
+
+## Acting on the reason
+
+`should-publish` on its own cannot be acted on. A run that publishes nothing is sometimes exactly right and
+sometimes a mistake that quietly costs a release, and as a boolean the two are identical - both leave a green
+run behind. The `reason` output says which it was.
+
+| Reason | Meaning | Expected? |
+| ------ | ------- | --------- |
+| `release` | A release of the repository is being cut | published |
+| `prerelease` | A prerelease artifact for a pull request is being published; no GitHub release | published |
+| `no-pull-request` | No merged pull request for the commit - pushed straight to the branch | yes |
+| `not-merged` | The pull request was closed without being merged | yes |
+| `dependabot` | The pull request was raised by Dependabot | yes |
+| `already-released` | A release already exists for this commit - a re-run | yes |
+| `no-prerelease-version` | An open pull request that yields no prerelease | yes |
+| `placeholder-version` | A manual run left at the `0.0.0` placeholder | yes |
+| **`no-label`** | **Merged, but carries no version label - the release was lost** | **no** |
+| **`error`** | **Working out the version failed; the action failed closed** | **no** |
+
+The two in bold are the ones worth failing a workflow over. Everything else is a legitimate reason to publish
+nothing, and failing on those would cry wolf on every commit pushed straight to the branch.
+
+```yml
+  verify-published:
+    # A merged pull request that publishes nothing is the failure mode that silently costs a release: the
+    # release job succeeds, every publish job is skipped for want of should-publish, and the run reports green.
+    if: always() && needs.release.result == 'success' && contains(fromJSON('["no-label", "error"]'), needs.release.outputs.reason)
+    runs-on: ubuntu-latest
+    needs: [release]
+    steps:
+      - name: Report that nothing was published
+        run: |
+          echo "::error::Nothing was published (reason: ${{ needs.release.outputs.reason }})."
+          exit 1
+```
+
+For that to work the `release` job has to expose the output:
+
+```yml
+    outputs:
+      reason: ${{ steps.release.outputs.reason }}
+```
+
+## Re-running a release
+
+Working the version out again after a release has been cut would bump from the version just released and cut a
+second, higher one from the same commit. The action does not: when a release already exists for the commit it
+resolves to `already-released` with `should-publish` false, so the publishing jobs skip along with it. That
+makes re-running a completed run safe - which matters most on `push`, where re-running the workflow is the
+natural response to a publishing step that failed for its own reasons.
 
 ## Developing
 
