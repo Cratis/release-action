@@ -22,6 +22,11 @@ const noReleasesYet = () => new SemVer('0.0.0');
 
 export class Releases implements IReleases {
 
+    // Listing the releases pages through every release the repository has ever had, and a single run asks for
+    // them more than once - to work out the latest version, and to check whether this commit was already
+    // released. Holding the first answer for the lifetime of the run keeps that to one round of pagination.
+    private _all: Promise<ExistingRelease[]> | undefined;
+
     constructor(
         readonly _octokit: Octokit,
         readonly _context: IActionContext,
@@ -137,7 +142,12 @@ export class Releases implements IReleases {
             : tag;
     }
 
-    private async getAll(): Promise<ExistingRelease[]> {
+    private getAll(): Promise<ExistingRelease[]> {
+        this._all ??= this.listAll();
+        return this._all;
+    }
+
+    private async listAll(): Promise<ExistingRelease[]> {
         const releases = await this._octokit.paginate(
             this._octokit.repos.listReleases,
             {
