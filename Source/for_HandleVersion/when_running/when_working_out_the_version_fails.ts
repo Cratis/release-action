@@ -31,4 +31,8 @@ describe('when working out the version fails', () => {
     it('should record that decision for the post step', () => {
         recorded?.shouldCreateRelease.should.be.false;
     });
+
+    it('should say that it failed', () => {
+        recorded?.reason.should.equal('error');
+    });
 });
