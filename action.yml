@@ -44,6 +44,8 @@ outputs:
     description: "Boolean telling whether or not it should be an isolated release for the pull request only"
   previous-version:
     description: "The version the new version was bumped from, or empty when there is no predecessor"
+  reason:
+    description: "Why the action decided what it decided - 'release' or 'prerelease' when something is published, otherwise one of 'no-pull-request', 'not-merged', 'no-label', 'dependabot', 'already-released', 'no-prerelease-version', 'placeholder-version' or 'error'. Lets a workflow fail on the reasons that cost a release ('no-label', 'error') without failing on the ones that are expected."
 
 branding:
   icon: "tag"

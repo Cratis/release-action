@@ -22,7 +22,7 @@ export class Versions implements IVersions {
         if (isClosedWithoutBeingMerged(pullRequest)) {
             this._logger.info(
                 `Pull request #${pullRequest.number} was closed without being merged - nothing will be released for it.`);
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('not-merged');
         }
 
         return isMerged(pullRequest)
@@ -42,7 +42,20 @@ export class Versions implements IVersions {
         if (!bump) {
             this._logger.info('No release related labels associated with the pull request.');
             this.logLabels(pullRequest);
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('no-label');
+        }
+
+        // Re-running a workflow that already released would bump from the version it just released and cut a
+        // second, higher one from the same commit - and, worse, publish artifacts for it before the post step
+        // gets a chance to notice. Deciding it here rather than only when creating the release means
+        // `should-publish` is false too, so the publishing jobs downstream skip along with it.
+        const alreadyReleased = pullRequest.merge_commit_sha
+            && await this._releases.existsForSha(pullRequest.merge_commit_sha);
+
+        if (alreadyReleased) {
+            this._logger.info(
+                `A release already exists for commit '${pullRequest.merge_commit_sha}' - nothing will be released again.`);
+            return VersionInfo.noReleaseBecause('already-released');
         }
 
         const latest = await this._releases.getLatestReleaseVersion();
@@ -69,7 +82,7 @@ export class Versions implements IVersions {
 
         if (!pullRequest.draft) {
             this._logger.info('Pull request is not in draft - no prerelease will be produced for it.');
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('no-prerelease-version');
         }
 
         const latest = await this._releases.getLatestReleaseVersion();
