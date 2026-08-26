@@ -11,3 +11,6 @@ node_modules
 !.yarn/versions
 yarn-error.log
 coverage
+
+# Local AI work artifacts (plans, handovers, session notes) — never tracked
+.ai-work/
