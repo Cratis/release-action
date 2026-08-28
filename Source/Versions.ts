@@ -38,6 +38,15 @@ export class Versions implements IVersions {
      * would also misbehave - `semver.inc` does not increment a prerelease the way it increments a release.
      */
     private async getReleaseVersion(pullRequest: PullRequest): Promise<VersionInfo> {
+        // A no-release label states the decision a missing label leaves open: this merge deliberately publishes
+        // nothing. Checked before the bump so that suppression always wins - a pull request carrying both has
+        // already slipped past whatever gate should have rejected it, and releasing is the irreversible answer.
+        if (this.hasNoReleaseLabel(pullRequest)) {
+            this._logger.info(
+                `Pull request #${pullRequest.number} is labelled as no-release - nothing will be released for it, by decision.`);
+            return VersionInfo.noReleaseBecause('no-release');
+        }
+
         const bump = this.getBump(pullRequest);
         if (!bump) {
             this._logger.info('No release related labels associated with the pull request.');
@@ -103,6 +112,14 @@ export class Versions implements IVersions {
         if (has(this._options.minorLabels)) return 'minor';
         if (has(this._options.patchLabels)) return 'patch';
         return undefined;
+    }
+
+    /**
+     * Whether the pull request carries a label that means it deliberately publishes nothing. Which label
+     * names count is configurable, like the bump labels.
+     */
+    private hasNoReleaseLabel(pullRequest: PullRequest): boolean {
+        return pullRequest.labels.some(label => this._options.noReleaseLabels.includes(label.name ?? ''));
     }
 
     /**

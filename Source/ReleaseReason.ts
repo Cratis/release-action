@@ -44,6 +44,13 @@ export type NotReleasedReason =
     | 'no-label'
 
     /**
+     * The pull request carries a label that says merging it deliberately publishes nothing - documentation,
+     * CI, tooling and spec-only changes. Expected, and the difference from `no-label`: someone decided this,
+     * rather than nobody deciding anything.
+     */
+    | 'no-release'
+
+    /**
      * The pull request was raised by Dependabot, which never produces a release. Expected.
      */
     | 'dependabot'
