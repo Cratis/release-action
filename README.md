@@ -13,6 +13,12 @@ labels, adhering to [semantic versioning version 2](https://semver.org):
 | minor | New capabilities have been added |
 | patch | Bug fixes |
 
+A fourth label, `no-release`, states the opposite decision explicitly: merging this pull request deliberately
+publishes nothing - documentation, CI, tooling and spec-only changes. It resolves to the `no-release` reason
+rather than `no-label`, so a workflow that fails on a silently lost release does not fail on a decided one.
+When a pull request somehow carries both a bump label and `no-release`, suppression wins and nothing is
+released - releasing is the irreversible answer to an ambiguity a gate should have rejected.
+
 For a merged pull request the new version is the latest release - or the highest existing version tag when
 there are no releases yet - incremented according to the label.
 
@@ -20,7 +26,7 @@ If none of these labels are present, it does not consider this to be a release: 
 and `should-publish` is `false`.
 
 The label names and the tag prefix are conventions you can change - see [Inputs](#inputs) (`major-labels`,
-`minor-labels`, `patch-labels`, `tag-prefix`).
+`minor-labels`, `patch-labels`, `no-release-labels`, `tag-prefix`).
 
 ### A pull request must be merged, not merely closed
 
@@ -195,6 +201,7 @@ default. Pass a real version to force a release; pass `release-notes` too, or Gi
 | major-labels | Comma-separated label names that mean a major version bump. | `major` | - |
 | minor-labels | Comma-separated label names that mean a minor version bump. | `minor` | - |
 | patch-labels | Comma-separated label names that mean a patch version bump. | `patch` | - |
+| no-release-labels | Comma-separated label names that mean the merge deliberately publishes nothing. | `no-release` | - |
 
 ## Outputs
 
@@ -224,6 +231,7 @@ run behind. The `reason` output says which it was.
 | `already-released` | A release already exists for this commit - a re-run | yes |
 | `no-prerelease-version` | An open pull request that yields no prerelease | yes |
 | `placeholder-version` | A manual run left at the `0.0.0` placeholder | yes |
+| `no-release` | Merged with a label that says it deliberately publishes nothing | yes |
 | **`no-label`** | **Merged, but carries no version label - the release was lost** | **no** |
 | **`error`** | **Working out the version failed; the action failed closed** | **no** |
 

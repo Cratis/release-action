@@ -40050,13 +40050,15 @@ class Releases {
 
 ;// CONCATENATED MODULE: ./Source/IReleaseOptions.ts
 /**
- * The out-of-the-box conventions: `v`-prefixed tags and `major`/`minor`/`patch` labels.
+ * The out-of-the-box conventions: `v`-prefixed tags and `major`/`minor`/`patch` labels, with `no-release`
+ * marking a merge that deliberately publishes nothing.
  */
 const defaultReleaseOptions = {
     tagPrefix: 'v',
     majorLabels: ['major'],
     minorLabels: ['minor'],
-    patchLabels: ['patch']
+    patchLabels: ['patch'],
+    noReleaseLabels: ['no-release']
 };
 
 ;// CONCATENATED MODULE: ./Source/VersionInfo.ts
@@ -40130,6 +40132,13 @@ class Versions {
      * would also misbehave - `semver.inc` does not increment a prerelease the way it increments a release.
      */
     async getReleaseVersion(pullRequest) {
+        // A no-release label states the decision a missing label leaves open: this merge deliberately publishes
+        // nothing. Checked before the bump so that suppression always wins - a pull request carrying both has
+        // already slipped past whatever gate should have rejected it, and releasing is the irreversible answer.
+        if (this.hasNoReleaseLabel(pullRequest)) {
+            this._logger.info(`Pull request #${pullRequest.number} is labelled as no-release - nothing will be released for it, by decision.`);
+            return VersionInfo.noReleaseBecause('no-release');
+        }
         const bump = this.getBump(pullRequest);
         if (!bump) {
             this._logger.info('No release related labels associated with the pull request.');
@@ -40186,6 +40195,13 @@ class Versions {
         if (has(this._options.patchLabels))
             return 'patch';
         return undefined;
+    }
+    /**
+     * Whether the pull request carries a label that means it deliberately publishes nothing. Which label
+     * names count is configurable, like the bump labels.
+     */
+    hasNoReleaseLabel(pullRequest) {
+        return pullRequest.labels.some(label => this._options.noReleaseLabels.includes(label.name ?? ''));
     }
     /**
      * A version is isolated to a pull request when it is a prerelease stamped with that pull request's own
@@ -40253,6 +40269,9 @@ const inputs = {
     },
     get patchLabels() {
         return parseLabels(getInput('patch-labels'), 'patch');
+    },
+    get noReleaseLabels() {
+        return parseLabels(getInput('no-release-labels'), 'no-release');
     }
 };
 

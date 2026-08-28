@@ -5,7 +5,7 @@ import { inputs } from '../inputs';
 // `@actions/core` reads an input `some-name` from `INPUT_SOME-NAME`.
 const set = (name: string, value: string) => { process.env[`INPUT_${name.toUpperCase()}`] = value; };
 const clear = (name: string) => { delete process.env[`INPUT_${name.toUpperCase()}`]; };
-const names = ['major-labels', 'minor-labels', 'patch-labels', 'tag-prefix'];
+const names = ['major-labels', 'minor-labels', 'patch-labels', 'no-release-labels', 'tag-prefix'];
 
 describe('when reading configured inputs', () => {
     beforeEach(() => {
@@ -44,6 +44,10 @@ describe('when reading inputs that are not configured', () => {
 
     it('should default the major labels to major', () => {
         inputs.majorLabels.should.deep.equal(['major']);
+    });
+
+    it('should default the no-release labels to no-release', () => {
+        inputs.noReleaseLabels.should.deep.equal(['no-release']);
     });
 });
 

@@ -30,6 +30,10 @@ inputs:
     description: "Comma-separated label names that mean a patch version bump."
     required: false
     default: "patch"
+  no-release-labels:
+    description: "Comma-separated label names that mean the merge deliberately publishes nothing."
+    required: false
+    default: "no-release"
 
 outputs:
   should-publish:
@@ -45,7 +49,7 @@ outputs:
   previous-version:
     description: "The version the new version was bumped from, or empty when there is no predecessor"
   reason:
-    description: "Why the action decided what it decided - 'release' or 'prerelease' when something is published, otherwise one of 'no-pull-request', 'not-merged', 'no-label', 'dependabot', 'already-released', 'no-prerelease-version', 'placeholder-version' or 'error'. Lets a workflow fail on the reasons that cost a release ('no-label', 'error') without failing on the ones that are expected."
+    description: "Why the action decided what it decided - 'release' or 'prerelease' when something is published, otherwise one of 'no-pull-request', 'not-merged', 'no-label', 'no-release', 'dependabot', 'already-released', 'no-prerelease-version', 'placeholder-version' or 'error'. Lets a workflow fail on the reasons that cost a release ('no-label', 'error') without failing on the ones that are expected."
 
 branding:
   icon: "tag"
