@@ -2,6 +2,14 @@
   "name": "release-action",
   "version": "1.0.0",
   "description": "GitHub action that works out a version from pull request labels and creates the GitHub release.",
+  "keywords": [
+    "github-action",
+    "semantic-release",
+    "semantic-versioning",
+    "semver",
+    "release-automation",
+    "cratis"
+  ],
   "author": "Cratis",
   "license": "MIT",
   "private": true,
