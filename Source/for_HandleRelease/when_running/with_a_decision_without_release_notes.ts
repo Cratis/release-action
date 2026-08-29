@@ -4,6 +4,7 @@ import { HandleRelease } from '../../HandleRelease';
 import { Release } from '../../Release';
 import { RecordingLogger } from '../../specs/RecordingLogger';
 import { anActionContext } from '../../specs/anActionContext';
+import { someIssues } from '../../specs/someIssues';
 import { StubbedReleases, someReleases } from '../../specs/someReleases';
 import { aDecisionToRelease, aRecordedDecision } from '../given/a_recorded_decision';
 
@@ -17,6 +18,7 @@ describe('when running the post step with a decision that has no release notes',
         await new HandleRelease(
             releases,
             aRecordedDecision(aDecisionToRelease({ releaseNotes: '' })),
+            someIssues(),
             anActionContext(),
             new RecordingLogger()).run();
 

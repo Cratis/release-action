@@ -18,7 +18,8 @@ export const noInputs: IInputs = {
     tagPrefix: 'v',
     majorLabels: ['major'],
     minorLabels: ['minor'],
-    patchLabels: ['patch']
+    patchLabels: ['patch'],
+    closeResolvedIssues: true
 };
 
 /**
