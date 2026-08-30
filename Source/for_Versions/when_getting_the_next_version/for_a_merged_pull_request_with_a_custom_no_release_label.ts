@@ -7,16 +7,17 @@ import { RecordingLogger } from '../../specs/RecordingLogger';
 import { aPullRequest } from '../../specs/aPullRequest';
 import { someReleases } from '../../specs/someReleases';
 
-// A repository can name its labels however it likes - here `bug` means a patch.
-describe('when getting the next version for a merged pull request with custom release labels', () => {
+// A repository can name its no-release label however it likes - here `skip-release` means the same as
+// `no-release` does by default.
+describe('when getting the next version for a merged pull request with a custom no-release label', () => {
     let result: VersionInfo;
 
     beforeEach(async () => {
         const options: IReleaseOptions = {
             tagPrefix: 'v',
-            majorLabels: ['breaking'],
-            minorLabels: ['feature'],
-            patchLabels: ['bug'],
+            majorLabels: ['major'],
+            minorLabels: ['minor'],
+            patchLabels: ['patch'],
             noReleaseLabels: ['skip-release']
         };
         const versions = new Versions(someReleases(), new RecordingLogger(), options);
@@ -25,11 +26,11 @@ describe('when getting the next version for a merged pull request with custom re
             state: 'closed',
             merged: true,
             merged_at: '2026-07-23T10:00:00Z',
-            labels: [{ name: 'bug' }]
+            labels: [{ name: 'skip-release' }]
         }));
     });
 
-    it('should treat the custom label as a patch bump', () => {
-        result.version?.version.should.equal('1.2.4');
+    it('should give the no-release reason', () => {
+        result.reason?.should.equal('no-release');
     });
 });

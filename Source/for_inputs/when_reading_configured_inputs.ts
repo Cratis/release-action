@@ -5,12 +5,13 @@ import { inputs } from '../inputs';
 // `@actions/core` reads an input `some-name` from `INPUT_SOME-NAME`.
 const set = (name: string, value: string) => { process.env[`INPUT_${name.toUpperCase()}`] = value; };
 const clear = (name: string) => { delete process.env[`INPUT_${name.toUpperCase()}`]; };
-const names = ['major-labels', 'minor-labels', 'patch-labels', 'tag-prefix'];
+const names = ['major-labels', 'minor-labels', 'patch-labels', 'no-release-labels', 'tag-prefix'];
 
 describe('when reading configured inputs', () => {
     beforeEach(() => {
         set('major-labels', 'breaking, big change');
         set('minor-labels', 'feature,enhancement');
+        set('no-release-labels', 'skip-release, no-op');
         set('tag-prefix', 'release-');
         clear('patch-labels');
     });
@@ -29,6 +30,10 @@ describe('when reading configured inputs', () => {
         inputs.patchLabels.should.deep.equal(['patch']);
     });
 
+    it('should split the no-release label list on commas and trim each name', () => {
+        inputs.noReleaseLabels.should.deep.equal(['skip-release', 'no-op']);
+    });
+
     it('should read the configured tag prefix', () => {
         inputs.tagPrefix.should.equal('release-');
     });
@@ -44,6 +49,10 @@ describe('when reading inputs that are not configured', () => {
 
     it('should default the major labels to major', () => {
         inputs.majorLabels.should.deep.equal(['major']);
+    });
+
+    it('should default the no-release labels to no-release', () => {
+        inputs.noReleaseLabels.should.deep.equal(['no-release']);
     });
 });
 
