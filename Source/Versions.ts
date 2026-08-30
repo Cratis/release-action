@@ -38,6 +38,14 @@ export class Versions implements IVersions {
      * would also misbehave - `semver.inc` does not increment a prerelease the way it increments a release.
      */
     private async getReleaseVersion(pullRequest: PullRequest): Promise<VersionInfo> {
+        // Checked ahead of the bump labels: `no-release` is a decision that nothing consumer-facing changed,
+        // not an omission, so it must never be reported as the same 'no-label' reason a forgotten label would
+        // be - that reason is what a workflow fails a run over.
+        if (this.hasNoReleaseLabel(pullRequest)) {
+            this._logger.info('Pull request is labelled no-release - nothing will be released, by decision.');
+            return VersionInfo.noReleaseBecause('no-release');
+        }
+
         const bump = this.getBump(pullRequest);
         if (!bump) {
             this._logger.info('No release related labels associated with the pull request.');
@@ -103,6 +111,14 @@ export class Versions implements IVersions {
         if (has(this._options.minorLabels)) return 'minor';
         if (has(this._options.patchLabels)) return 'patch';
         return undefined;
+    }
+
+    /**
+     * Whether the pull request carries the label that means "deliberately nothing to release". Which label
+     * names count is configurable, so a repository can keep its own conventions.
+     */
+    private hasNoReleaseLabel(pullRequest: PullRequest): boolean {
+        return pullRequest.labels.some(label => this._options.noReleaseLabels.includes(label.name ?? ''));
     }
 
     /**
