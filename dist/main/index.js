@@ -39622,9 +39622,9 @@ var semver_default = /*#__PURE__*/__nccwpck_require__.n(semver);
 ;// CONCATENATED MODULE: ./Source/ReleaseDecision.ts
 /**
  * The decision to release nothing at all. This is what every failure and every "not a release" path resolves
- * to, so that the action always fails closed.
+ * to, so that the action always fails closed - carrying the reason it got there.
  */
-const nothingToRelease = {
+const nothingToRelease = (reason) => ({
     shouldPublish: false,
     shouldCreateRelease: false,
     version: '',
@@ -39633,8 +39633,9 @@ const nothingToRelease = {
     isIsolatedForPullRequest: false,
     releaseNotes: '',
     previousVersion: '',
-    targetCommitish: ''
-};
+    targetCommitish: '',
+    reason
+});
 
 ;// CONCATENATED MODULE: ./Source/PullRequest.ts
 /**
@@ -39688,7 +39689,7 @@ class HandleVersion {
         catch (ex) {
             this._logger.error('Something went wrong while working out the version to release.');
             this._logger.error(ex);
-            decision = nothingToRelease;
+            decision = nothingToRelease('error');
         }
         this._decisions.record(decision);
         return decision;
@@ -39705,7 +39706,7 @@ class HandleVersion {
         // default can never cut a bogus `0.0.0` release; provide a real version to force one.
         if (version === '0.0.0') {
             this._logger.info("The version input is the placeholder '0.0.0' - nothing will be released. Provide a real version to force a release.");
-            return nothingToRelease;
+            return nothingToRelease('placeholder-version');
         }
         const semanticVersion = new semver.SemVer(version);
         this._logger.info(`Using explicitly set version number '${semanticVersion.version}'.`);
@@ -39722,21 +39723,24 @@ class HandleVersion {
             isIsolatedForPullRequest: false,
             releaseNotes,
             previousVersion: '',
-            targetCommitish: this._context.sha
+            targetCommitish: this._context.sha,
+            reason: semanticVersion.prerelease.length > 0 ? 'prerelease' : 'release'
         };
     }
     async decideFromPullRequest() {
         const pullRequest = await this.getPullRequest();
         if (!pullRequest)
-            return nothingToRelease;
+            return nothingToRelease('no-pull-request');
         if (isFromDependabot(pullRequest)) {
             this._logger.info(`Pull request #${pullRequest.number} is from Dependabot (${pullRequest.user?.login}) - nothing will be released for it.`);
-            return nothingToRelease;
+            return nothingToRelease('dependabot');
         }
         const versionInfo = await this._versions.getNextVersionFor(pullRequest);
         const version = versionInfo.version;
+        // `getNextVersionFor` knows which of the no-release paths it took; anything it did not name is a
+        // merged pull request that carried no label, which is the one worth failing a workflow over.
         if (!version)
-            return nothingToRelease;
+            return nothingToRelease(versionInfo.reason ?? 'no-label');
         return {
             shouldPublish: true,
             // A prerelease is an artifact belonging to a pull request, not a release of the repository.
@@ -39747,7 +39751,8 @@ class HandleVersion {
             isIsolatedForPullRequest: versionInfo.isIsolatedForPullRequest,
             releaseNotes: pullRequest.body ?? '',
             previousVersion: versionInfo.previousVersion,
-            targetCommitish: pullRequest.merge_commit_sha ?? this._context.sha
+            targetCommitish: pullRequest.merge_commit_sha ?? this._context.sha,
+            reason: versionInfo.isPrerelease ? 'prerelease' : 'release'
         };
     }
     tagFor(version) {
@@ -39913,6 +39918,10 @@ class Releases {
     _context;
     _logger;
     _tagPrefix;
+    // Listing the releases pages through every release the repository has ever had, and a single run asks for
+    // them more than once - to work out the latest version, and to check whether this commit was already
+    // released. Holding the first answer for the lifetime of the run keeps that to one round of pagination.
+    _all;
     constructor(_octokit, _context, _logger, _tagPrefix = 'v') {
         this._octokit = _octokit;
         this._context = _context;
@@ -40017,7 +40026,11 @@ class Releases {
             ? tag.substring(this._tagPrefix.length)
             : tag;
     }
-    async getAll() {
+    getAll() {
+        this._all ??= this.listAll();
+        return this._all;
+    }
+    async listAll() {
         const releases = await this._octokit.paginate(this._octokit.repos.listReleases, {
             owner: this._context.repo.owner,
             repo: this._context.repo.repo,
@@ -40037,13 +40050,15 @@ class Releases {
 
 ;// CONCATENATED MODULE: ./Source/IReleaseOptions.ts
 /**
- * The out-of-the-box conventions: `v`-prefixed tags and `major`/`minor`/`patch` labels.
+ * The out-of-the-box conventions: `v`-prefixed tags, `major`/`minor`/`patch` labels, and `no-release` for a
+ * pull request that carries a deliberate decision to publish nothing.
  */
 const defaultReleaseOptions = {
     tagPrefix: 'v',
     majorLabels: ['major'],
     minorLabels: ['minor'],
-    patchLabels: ['patch']
+    patchLabels: ['patch'],
+    noReleaseLabels: ['no-release']
 };
 
 ;// CONCATENATED MODULE: ./Source/VersionInfo.ts
@@ -40054,21 +40069,27 @@ class VersionInfo {
     version;
     isIsolatedForPullRequest;
     previousVersion;
-    /**
-     * Nothing should be released.
-     */
-    static noRelease = new VersionInfo(undefined, false, '');
-    constructor(version, isIsolatedForPullRequest, previousVersion) {
+    reason;
+    constructor(version, isIsolatedForPullRequest, previousVersion, reason) {
         this.version = version;
         this.isIsolatedForPullRequest = isIsolatedForPullRequest;
         this.previousVersion = previousVersion;
+        this.reason = reason;
+    }
+    /**
+     * Nothing should be released, for the given reason. The reason travels with the outcome rather than being
+     * inferred by the caller, because only the code that decided knows which of the several no-release paths
+     * this was - and telling a missing label apart from a Dependabot merge is the whole point.
+     */
+    static noReleaseBecause(reason) {
+        return new VersionInfo(undefined, false, '', reason);
     }
     /**
      * Something should be released, with the given version, bumped from `previousVersion` (empty when there is
      * no meaningful predecessor, such as a prerelease derived from a branch name).
      */
     static releaseOf(version, isIsolatedForPullRequest, previousVersion = '') {
-        return new VersionInfo(version, isIsolatedForPullRequest, previousVersion);
+        return new VersionInfo(version, isIsolatedForPullRequest, previousVersion, undefined);
     }
     get isRelease() {
         return this.version !== undefined;
@@ -40097,7 +40118,7 @@ class Versions {
         // branch, so it must never produce a version - regardless of which release labels it carries.
         if (isClosedWithoutBeingMerged(pullRequest)) {
             this._logger.info(`Pull request #${pullRequest.number} was closed without being merged - nothing will be released for it.`);
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('not-merged');
         }
         return isMerged(pullRequest)
             ? await this.getReleaseVersion(pullRequest)
@@ -40111,11 +40132,28 @@ class Versions {
      * would also misbehave - `semver.inc` does not increment a prerelease the way it increments a release.
      */
     async getReleaseVersion(pullRequest) {
+        // Checked ahead of the bump labels: `no-release` is a decision that nothing consumer-facing changed,
+        // not an omission, so it must never be reported as the same 'no-label' reason a forgotten label would
+        // be - that reason is what a workflow fails a run over.
+        if (this.hasNoReleaseLabel(pullRequest)) {
+            this._logger.info('Pull request is labelled no-release - nothing will be released, by decision.');
+            return VersionInfo.noReleaseBecause('no-release');
+        }
         const bump = this.getBump(pullRequest);
         if (!bump) {
             this._logger.info('No release related labels associated with the pull request.');
             this.logLabels(pullRequest);
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('no-label');
+        }
+        // Re-running a workflow that already released would bump from the version it just released and cut a
+        // second, higher one from the same commit - and, worse, publish artifacts for it before the post step
+        // gets a chance to notice. Deciding it here rather than only when creating the release means
+        // `should-publish` is false too, so the publishing jobs downstream skip along with it.
+        const alreadyReleased = pullRequest.merge_commit_sha
+            && await this._releases.existsForSha(pullRequest.merge_commit_sha);
+        if (alreadyReleased) {
+            this._logger.info(`A release already exists for commit '${pullRequest.merge_commit_sha}' - nothing will be released again.`);
+            return VersionInfo.noReleaseBecause('already-released');
         }
         const latest = await this._releases.getLatestReleaseVersion();
         // Capture the predecessor before bumping - `semver.inc` mutates in place, so after the bump `latest`
@@ -40137,7 +40175,7 @@ class Versions {
         }
         if (!pullRequest.draft) {
             this._logger.info('Pull request is not in draft - no prerelease will be produced for it.');
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('no-prerelease-version');
         }
         const latest = await this._releases.getLatestReleaseVersion();
         const version = new semver.SemVer(`${latest.version}-${this.marker(pullRequest)}.${this.shortHeadSha(pullRequest)}`);
@@ -40157,6 +40195,13 @@ class Versions {
         if (has(this._options.patchLabels))
             return 'patch';
         return undefined;
+    }
+    /**
+     * Whether the pull request carries the label that means "deliberately nothing to release". Which label
+     * names count is configurable, so a repository can keep its own conventions.
+     */
+    hasNoReleaseLabel(pullRequest) {
+        return pullRequest.labels.some(label => this._options.noReleaseLabels.includes(label.name ?? ''));
     }
     /**
      * A version is isolated to a pull request when it is a prerelease stamped with that pull request's own
@@ -40225,6 +40270,9 @@ const inputs = {
     get patchLabels() {
         return parseLabels(getInput('patch-labels'), 'patch');
     },
+    get noReleaseLabels() {
+        return parseLabels(getInput('no-release-labels'), 'no-release');
+    },
     get closeResolvedIssues() {
         // Absent means on. The references are already in the notes and already mean "this release delivers
         // that issue", so the useful default is to act on them; a repository that does not want it says so.
@@ -40274,6 +40322,7 @@ const setOutputsFrom = (decision) => {
     setOutput('prerelease', decision.isPrerelease);
     setOutput('isolated-for-pull-request', decision.isIsolatedForPullRequest);
     setOutput('previous-version', decision.previousVersion);
+    setOutput('reason', decision.reason);
 };
 
 ;// CONCATENATED MODULE: ./Source/summary.ts
@@ -40285,6 +40334,7 @@ const orDash = (value) => (value !== '' ? value : '—');
  * wording can be asserted without any GitHub environment.
  */
 const summaryRowsFor = (decision) => [
+    ['Reason', decision.reason],
     ['Should publish', yesNo(decision.shouldPublish)],
     ['Create release', yesNo(decision.shouldCreateRelease)],
     ['Version', orDash(decision.version)],

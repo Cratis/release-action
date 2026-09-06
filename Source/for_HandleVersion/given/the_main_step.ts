@@ -19,6 +19,7 @@ export const noInputs: IInputs = {
     majorLabels: ['major'],
     minorLabels: ['minor'],
     patchLabels: ['patch'],
+    noReleaseLabels: ['no-release'],
     closeResolvedIssues: true
 };
 

@@ -21,4 +21,8 @@ describe('when building the summary rows for a decision to release', () => {
     it('should show the previous version', () => {
         rows.get('Previous version')?.should.equal('1.2.3');
     });
+
+    it('should show the reason', () => {
+        rows.get('Reason')?.should.equal('release');
+    });
 });

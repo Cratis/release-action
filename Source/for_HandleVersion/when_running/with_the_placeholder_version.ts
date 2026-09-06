@@ -32,4 +32,8 @@ describe('when running the main step with the placeholder version', () => {
     it('should not produce a version', () => {
         decision.version.should.equal('');
     });
+
+    it('should say that the version was the placeholder', () => {
+        decision.reason.should.equal('placeholder-version');
+    });
 });

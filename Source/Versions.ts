@@ -22,7 +22,7 @@ export class Versions implements IVersions {
         if (isClosedWithoutBeingMerged(pullRequest)) {
             this._logger.info(
                 `Pull request #${pullRequest.number} was closed without being merged - nothing will be released for it.`);
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('not-merged');
         }
 
         return isMerged(pullRequest)
@@ -38,11 +38,32 @@ export class Versions implements IVersions {
      * would also misbehave - `semver.inc` does not increment a prerelease the way it increments a release.
      */
     private async getReleaseVersion(pullRequest: PullRequest): Promise<VersionInfo> {
+        // Checked ahead of the bump labels: `no-release` is a decision that nothing consumer-facing changed,
+        // not an omission, so it must never be reported as the same 'no-label' reason a forgotten label would
+        // be - that reason is what a workflow fails a run over.
+        if (this.hasNoReleaseLabel(pullRequest)) {
+            this._logger.info('Pull request is labelled no-release - nothing will be released, by decision.');
+            return VersionInfo.noReleaseBecause('no-release');
+        }
+
         const bump = this.getBump(pullRequest);
         if (!bump) {
             this._logger.info('No release related labels associated with the pull request.');
             this.logLabels(pullRequest);
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('no-label');
+        }
+
+        // Re-running a workflow that already released would bump from the version it just released and cut a
+        // second, higher one from the same commit - and, worse, publish artifacts for it before the post step
+        // gets a chance to notice. Deciding it here rather than only when creating the release means
+        // `should-publish` is false too, so the publishing jobs downstream skip along with it.
+        const alreadyReleased = pullRequest.merge_commit_sha
+            && await this._releases.existsForSha(pullRequest.merge_commit_sha);
+
+        if (alreadyReleased) {
+            this._logger.info(
+                `A release already exists for commit '${pullRequest.merge_commit_sha}' - nothing will be released again.`);
+            return VersionInfo.noReleaseBecause('already-released');
         }
 
         const latest = await this._releases.getLatestReleaseVersion();
@@ -69,7 +90,7 @@ export class Versions implements IVersions {
 
         if (!pullRequest.draft) {
             this._logger.info('Pull request is not in draft - no prerelease will be produced for it.');
-            return VersionInfo.noRelease;
+            return VersionInfo.noReleaseBecause('no-prerelease-version');
         }
 
         const latest = await this._releases.getLatestReleaseVersion();
@@ -90,6 +111,14 @@ export class Versions implements IVersions {
         if (has(this._options.minorLabels)) return 'minor';
         if (has(this._options.patchLabels)) return 'patch';
         return undefined;
+    }
+
+    /**
+     * Whether the pull request carries the label that means "deliberately nothing to release". Which label
+     * names count is configurable, so a repository can keep its own conventions.
+     */
+    private hasNoReleaseLabel(pullRequest: PullRequest): boolean {
+        return pullRequest.labels.some(label => this._options.noReleaseLabels.includes(label.name ?? ''));
     }
 
     /**

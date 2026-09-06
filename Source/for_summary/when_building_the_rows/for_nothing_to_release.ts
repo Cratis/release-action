@@ -7,7 +7,7 @@ describe('when building the summary rows for nothing to release', () => {
     let rows: Map<string, string>;
 
     beforeEach(() => {
-        rows = new Map(summaryRowsFor(nothingToRelease));
+        rows = new Map(summaryRowsFor(nothingToRelease('no-label')));
     });
 
     it('should show that it will not publish', () => {
@@ -16,5 +16,9 @@ describe('when building the summary rows for nothing to release', () => {
 
     it('should show a dash for the absent version', () => {
         rows.get('Version')?.should.equal('—');
+    });
+
+    it('should show the reason', () => {
+        rows.get('Reason')?.should.equal('no-label');
     });
 });

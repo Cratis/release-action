@@ -3,6 +3,7 @@ import sinon, { SinonStub } from 'sinon';
 
 export type FakeOctokit = {
     octokit: Octokit;
+    paginate: SinonStub;
     getCommit: SinonStub;
     getReleaseByTag: SinonStub;
     createRelease: SinonStub;
@@ -44,6 +45,7 @@ export const aFakeOctokit = (): FakeOctokit => {
 
     return {
         octokit,
+        paginate,
         getCommit,
         getReleaseByTag,
         createRelease,

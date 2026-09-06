@@ -39817,6 +39817,10 @@ class Releases {
     _context;
     _logger;
     _tagPrefix;
+    // Listing the releases pages through every release the repository has ever had, and a single run asks for
+    // them more than once - to work out the latest version, and to check whether this commit was already
+    // released. Holding the first answer for the lifetime of the run keeps that to one round of pagination.
+    _all;
     constructor(_octokit, _context, _logger, _tagPrefix = 'v') {
         this._octokit = _octokit;
         this._context = _context;
@@ -39921,7 +39925,11 @@ class Releases {
             ? tag.substring(this._tagPrefix.length)
             : tag;
     }
-    async getAll() {
+    getAll() {
+        this._all ??= this.listAll();
+        return this._all;
+    }
+    async listAll() {
         const releases = await this._octokit.paginate(this._octokit.repos.listReleases, {
             owner: this._context.repo.owner,
             repo: this._context.repo.repo,
@@ -39969,6 +39977,9 @@ const inputs = {
     },
     get patchLabels() {
         return parseLabels(getInput('patch-labels'), 'patch');
+    },
+    get noReleaseLabels() {
+        return parseLabels(getInput('no-release-labels'), 'no-release');
     },
     get closeResolvedIssues() {
         // Absent means on. The references are already in the notes and already mean "this release delivers

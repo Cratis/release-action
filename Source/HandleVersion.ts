@@ -32,7 +32,7 @@ export class HandleVersion {
         } catch (ex) {
             this._logger.error('Something went wrong while working out the version to release.');
             this._logger.error(ex);
-            decision = nothingToRelease;
+            decision = nothingToRelease('error');
         }
 
         this._decisions.record(decision);
@@ -52,7 +52,7 @@ export class HandleVersion {
         if (version === '0.0.0') {
             this._logger.info(
                 "The version input is the placeholder '0.0.0' - nothing will be released. Provide a real version to force a release.");
-            return nothingToRelease;
+            return nothingToRelease('placeholder-version');
         }
 
         const semanticVersion = new SemVer(version);
@@ -72,23 +72,27 @@ export class HandleVersion {
             isIsolatedForPullRequest: false,
             releaseNotes,
             previousVersion: '',
-            targetCommitish: this._context.sha
+            targetCommitish: this._context.sha,
+            reason: semanticVersion.prerelease.length > 0 ? 'prerelease' : 'release'
         };
     }
 
     private async decideFromPullRequest(): Promise<ReleaseDecision> {
         const pullRequest = await this.getPullRequest();
-        if (!pullRequest) return nothingToRelease;
+        if (!pullRequest) return nothingToRelease('no-pull-request');
 
         if (isFromDependabot(pullRequest)) {
             this._logger.info(
                 `Pull request #${pullRequest.number} is from Dependabot (${pullRequest.user?.login}) - nothing will be released for it.`);
-            return nothingToRelease;
+            return nothingToRelease('dependabot');
         }
 
         const versionInfo = await this._versions.getNextVersionFor(pullRequest);
         const version = versionInfo.version;
-        if (!version) return nothingToRelease;
+
+        // `getNextVersionFor` knows which of the no-release paths it took; anything it did not name is a
+        // merged pull request that carried no label, which is the one worth failing a workflow over.
+        if (!version) return nothingToRelease(versionInfo.reason ?? 'no-label');
 
         return {
             shouldPublish: true,
@@ -101,7 +105,8 @@ export class HandleVersion {
             isIsolatedForPullRequest: versionInfo.isIsolatedForPullRequest,
             releaseNotes: pullRequest.body ?? '',
             previousVersion: versionInfo.previousVersion,
-            targetCommitish: pullRequest.merge_commit_sha ?? this._context.sha
+            targetCommitish: pullRequest.merge_commit_sha ?? this._context.sha,
+            reason: versionInfo.isPrerelease ? 'prerelease' : 'release'
         };
     }
 

@@ -19,5 +19,6 @@ export const aDecisionToRelease = (overrides: Partial<ReleaseDecision> = {}): Re
     releaseNotes: 'The release notes',
     previousVersion: '1.2.3',
     targetCommitish: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    reason: 'release',
     ...overrides
 });

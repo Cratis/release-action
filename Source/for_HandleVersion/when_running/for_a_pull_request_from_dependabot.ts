@@ -20,4 +20,8 @@ describe('when running the main step for a merged pull request from dependabot',
     it('should not publish', () => {
         decision.shouldPublish.should.be.false;
     });
+
+    it('should say that it was from dependabot', () => {
+        decision.reason.should.equal('dependabot');
+    });
 });

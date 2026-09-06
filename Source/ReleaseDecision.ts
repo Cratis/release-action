@@ -1,3 +1,5 @@
+import { NotReleasedReason, ReleaseReason } from './ReleaseReason';
+
 /**
  * Everything the main step worked out about this run, handed over to the post step.
  *
@@ -40,13 +42,19 @@ export type ReleaseDecision = {
      * ephemeral merge commit a `pull_request` event reports as `github.sha`.
      */
     targetCommitish: string;
+
+    /**
+     * Why the action decided what it decided. Surfaced as the `reason` output, so a workflow can tell a
+     * deliberate no-release apart from one that silently cost a release. See {@link ReleaseReason}.
+     */
+    reason: ReleaseReason;
 };
 
 /**
  * The decision to release nothing at all. This is what every failure and every "not a release" path resolves
- * to, so that the action always fails closed.
+ * to, so that the action always fails closed - carrying the reason it got there.
  */
-export const nothingToRelease: ReleaseDecision = {
+export const nothingToRelease = (reason: NotReleasedReason): ReleaseDecision => ({
     shouldPublish: false,
     shouldCreateRelease: false,
     version: '',
@@ -55,5 +63,6 @@ export const nothingToRelease: ReleaseDecision = {
     isIsolatedForPullRequest: false,
     releaseNotes: '',
     previousVersion: '',
-    targetCommitish: ''
-};
+    targetCommitish: '',
+    reason
+});

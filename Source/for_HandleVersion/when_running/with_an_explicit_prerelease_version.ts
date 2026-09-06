@@ -16,4 +16,8 @@ describe('when running the main step with an explicit prerelease version', () =>
     it('should be a prerelease', () => {
         decision.isPrerelease.should.be.true;
     });
+
+    it('should say that it is a prerelease', () => {
+        decision.reason.should.equal('prerelease');
+    });
 });

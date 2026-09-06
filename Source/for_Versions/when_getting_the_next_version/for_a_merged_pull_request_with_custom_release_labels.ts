@@ -16,7 +16,8 @@ describe('when getting the next version for a merged pull request with custom re
             tagPrefix: 'v',
             majorLabels: ['breaking'],
             minorLabels: ['feature'],
-            patchLabels: ['bug']
+            patchLabels: ['bug'],
+            noReleaseLabels: ['skip-release']
         };
         const versions = new Versions(someReleases(), new RecordingLogger(), options);
 
