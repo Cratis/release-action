@@ -44,6 +44,12 @@ export type NotReleasedReason =
     | 'no-label'
 
     /**
+     * The pull request was merged carrying the `no-release` label - a decision that nothing consumer-facing
+     * changed, not an omission. Expected, and not a problem.
+     */
+    | 'no-release'
+
+    /**
      * The pull request was raised by Dependabot, which never produces a release. Expected.
      */
     | 'dependabot'

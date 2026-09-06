@@ -40050,13 +40050,15 @@ class Releases {
 
 ;// CONCATENATED MODULE: ./Source/IReleaseOptions.ts
 /**
- * The out-of-the-box conventions: `v`-prefixed tags and `major`/`minor`/`patch` labels.
+ * The out-of-the-box conventions: `v`-prefixed tags, `major`/`minor`/`patch` labels, and `no-release` for a
+ * pull request that carries a deliberate decision to publish nothing.
  */
 const defaultReleaseOptions = {
     tagPrefix: 'v',
     majorLabels: ['major'],
     minorLabels: ['minor'],
-    patchLabels: ['patch']
+    patchLabels: ['patch'],
+    noReleaseLabels: ['no-release']
 };
 
 ;// CONCATENATED MODULE: ./Source/VersionInfo.ts
@@ -40130,6 +40132,13 @@ class Versions {
      * would also misbehave - `semver.inc` does not increment a prerelease the way it increments a release.
      */
     async getReleaseVersion(pullRequest) {
+        // Checked ahead of the bump labels: `no-release` is a decision that nothing consumer-facing changed,
+        // not an omission, so it must never be reported as the same 'no-label' reason a forgotten label would
+        // be - that reason is what a workflow fails a run over.
+        if (this.hasNoReleaseLabel(pullRequest)) {
+            this._logger.info('Pull request is labelled no-release - nothing will be released, by decision.');
+            return VersionInfo.noReleaseBecause('no-release');
+        }
         const bump = this.getBump(pullRequest);
         if (!bump) {
             this._logger.info('No release related labels associated with the pull request.');
@@ -40186,6 +40195,13 @@ class Versions {
         if (has(this._options.patchLabels))
             return 'patch';
         return undefined;
+    }
+    /**
+     * Whether the pull request carries the label that means "deliberately nothing to release". Which label
+     * names count is configurable, so a repository can keep its own conventions.
+     */
+    hasNoReleaseLabel(pullRequest) {
+        return pullRequest.labels.some(label => this._options.noReleaseLabels.includes(label.name ?? ''));
     }
     /**
      * A version is isolated to a pull request when it is a prerelease stamped with that pull request's own
@@ -40253,6 +40269,9 @@ const inputs = {
     },
     get patchLabels() {
         return parseLabels(getInput('patch-labels'), 'patch');
+    },
+    get noReleaseLabels() {
+        return parseLabels(getInput('no-release-labels'), 'no-release');
     }
 };
 
