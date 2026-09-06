@@ -16,11 +16,16 @@ labels, adhering to [semantic versioning version 2](https://semver.org):
 For a merged pull request the new version is the latest release - or the highest existing version tag when
 there are no releases yet - incremented according to the label.
 
+A merged pull request can also carry `no-release` instead, when nothing about it is meant to be published -
+documentation, CI, tooling or spec-only changes. This is a decision, not an omission: it reports the `reason`
+output as `no-release` rather than `no-label`, so a workflow that fails on a forgotten label does not also fail
+on a deliberate one.
+
 If none of these labels are present, it does not consider this to be a release: no GitHub release is produced
-and `should-publish` is `false`.
+and `should-publish` is `false`, with the `reason` output set to `no-label`.
 
 The label names and the tag prefix are conventions you can change - see [Inputs](#inputs) (`major-labels`,
-`minor-labels`, `patch-labels`, `tag-prefix`).
+`minor-labels`, `patch-labels`, `no-release-labels`, `tag-prefix`).
 
 ### A pull request must be merged, not merely closed
 
@@ -195,6 +200,7 @@ default. Pass a real version to force a release; pass `release-notes` too, or Gi
 | major-labels | Comma-separated label names that mean a major version bump. | `major` | - |
 | minor-labels | Comma-separated label names that mean a minor version bump. | `minor` | - |
 | patch-labels | Comma-separated label names that mean a patch version bump. | `patch` | - |
+| no-release-labels | Comma-separated label names that mean a merged pull request deliberately publishes nothing. | `no-release` | - |
 
 ## Outputs
 
@@ -220,6 +226,7 @@ run behind. The `reason` output says which it was.
 | `prerelease` | A prerelease artifact for a pull request is being published; no GitHub release | published |
 | `no-pull-request` | No merged pull request for the commit - pushed straight to the branch | yes |
 | `not-merged` | The pull request was closed without being merged | yes |
+| `no-release` | The pull request was merged carrying the `no-release` label - a decision, not an omission | yes |
 | `dependabot` | The pull request was raised by Dependabot | yes |
 | `already-released` | A release already exists for this commit - a re-run | yes |
 | `no-prerelease-version` | An open pull request that yields no prerelease | yes |

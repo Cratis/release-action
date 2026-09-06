@@ -39863,6 +39863,9 @@ const inputs = {
     },
     get patchLabels() {
         return parseLabels(getInput('patch-labels'), 'patch');
+    },
+    get noReleaseLabels() {
+        return parseLabels(getInput('no-release-labels'), 'no-release');
     }
 };
 
