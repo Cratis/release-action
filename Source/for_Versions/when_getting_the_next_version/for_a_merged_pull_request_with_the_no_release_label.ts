@@ -30,3 +30,29 @@ describe('when getting the next version for a merged pull request with the no-re
         result.reason?.should.equal('no-release');
     });
 });
+
+// The gate that keeps `no-release` and a bump label from ever sharing a pull request lives upstream, so the
+// action still has to answer for the combination on its own: suppression wins, because releasing is the
+// irreversible answer to an ambiguity.
+describe('when getting the next version for a merged pull request with both no-release and patch labels', () => {
+    let result: VersionInfo;
+
+    beforeEach(async () => {
+        const versions = new Versions(someReleases(), new RecordingLogger());
+
+        result = await versions.getNextVersionFor(aPullRequest({
+            state: 'closed',
+            merged: true,
+            merged_at: '2026-07-23T10:00:00Z',
+            labels: [{ name: 'no-release' }, { name: 'patch' }]
+        }));
+    });
+
+    it('should not be a release', () => {
+        result.isRelease.should.be.false;
+    });
+
+    it('should give the no-release reason', () => {
+        result.reason?.should.equal('no-release');
+    });
+});
