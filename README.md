@@ -277,8 +277,7 @@ yarn ci       # typecheck, lint, specs and build
 yarn test     # specs only
 ```
 
-Specs live next to the source in `for_*/when_*/` folders and follow the Cratis spec conventions - see
-[.ai/rules/specs.typescript.md](./.ai/rules/specs.typescript.md).
+Specs live next to the source in `for_*/when_*/` folders and follow the Cratis spec conventions.
 
 ## Releasing
 
