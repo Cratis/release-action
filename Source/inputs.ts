@@ -41,5 +41,11 @@ export const inputs: IInputs = {
 
     get noReleaseLabels() {
         return parseLabels(getInput('no-release-labels'), 'no-release');
+    },
+
+    get closeResolvedIssues() {
+        // Absent means on. The references are already in the notes and already mean "this release delivers
+        // that issue", so the useful default is to act on them; a repository that does not want it says so.
+        return getInput('close-resolved-issues').trim().toLowerCase() !== 'false';
     }
 };
