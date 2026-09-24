@@ -8,6 +8,13 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint's peer dependency on typescript (>=4.8.4 <6.1.0) does not
+      # yet allow typescript 7.x, so major bumps fail the whole group update with a
+      # dependency_file_not_resolvable error. Remove once typescript-eslint adds
+      # typescript 7 support.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
