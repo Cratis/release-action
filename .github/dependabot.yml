@@ -8,6 +8,13 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint's peer dependency currently caps typescript at
+      # <6.1.0; a grouped update that bumps typescript to a new major
+      # fails peer resolution for the whole group. Re-allow once
+      # typescript-eslint supports the newer typescript major.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
