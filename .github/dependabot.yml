@@ -8,6 +8,15 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint's peer dependency on typescript is capped at <6.1.0
+      # (https://www.npmjs.com/package/typescript-eslint), so every Dependabot
+      # run tries and fails to resolve a TypeScript 7.x bump, reporting the
+      # whole grouped update as failed even though the other packages update
+      # fine. Drop this once typescript-eslint raises its typescript peer
+      # range to include 7.x.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
