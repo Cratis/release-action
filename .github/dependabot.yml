@@ -8,6 +8,13 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint's peer dependency caps typescript at ">=4.8.4 <6.1.0". Bumping
+      # typescript past that range alone makes yarn's peer resolution fail for the whole
+      # group, so Dependabot errors the update job instead of opening a PR. Hold typescript
+      # below 6.1 until typescript-eslint publishes support for newer versions, then drop this.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
