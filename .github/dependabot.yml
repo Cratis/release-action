@@ -8,6 +8,14 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint's peer dependency caps typescript at ">=4.8.4 <6.1.0", and no
+      # typescript-eslint release supports a newer typescript major. Bumping typescript
+      # alone makes yarn's peer resolution fail for the whole group, so Dependabot errors
+      # the update job instead of opening a PR. Drop this ignore once typescript-eslint
+      # publishes support for the newer typescript major.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
