@@ -21,6 +21,9 @@ documentation, CI, tooling or spec-only changes. This is a decision, not an omis
 output as `no-release` rather than `no-label`, so a workflow that fails on a forgotten label does not also fail
 on a deliberate one.
 
+A merged pull request carrying more than one of these - `major` with `patch`, or a bump with `no-release` - releases
+nothing and reports the `reason` output as `error`, logging the labels it found. Remove all but one and re-run the publishing workflow.
+
 If none of these labels are present, it does not consider this to be a release: no GitHub release is produced
 and `should-publish` is `false`, with the `reason` output set to `no-label`.
 
@@ -274,7 +277,7 @@ run behind. The `reason` output says which it was.
 | `no-prerelease-version` | An open pull request that yields no prerelease | yes |
 | `placeholder-version` | A manual run left at the `0.0.0` placeholder | yes |
 | **`no-label`** | **Merged, but carries no version label - the release was lost** | **no** |
-| **`error`** | **Working out the version failed; the action failed closed** | **no** |
+| **`error`** | **Working out the version failed, or the pull request carries more than one release label; the action failed closed** | **no** |
 
 The two in bold are the ones worth failing a workflow over. Everything else is a legitimate reason to publish
 nothing, and failing on those would cry wolf on every commit pushed straight to the branch.

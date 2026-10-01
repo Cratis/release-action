@@ -6,7 +6,7 @@ import { RecordingLogger } from '../../specs/RecordingLogger';
 import { aPullRequest } from '../../specs/aPullRequest';
 import { someReleases } from '../../specs/someReleases';
 
-describe('when getting the next version for a merged pull request carrying both a major and a patch label', () => {
+describe('when getting the next version for a merged pull request with a major label', () => {
     let result: VersionInfo;
 
     beforeEach(async () => {
@@ -16,11 +16,11 @@ describe('when getting the next version for a merged pull request carrying both 
             state: 'closed',
             merged: true,
             merged_at: '2026-07-23T10:00:00Z',
-            labels: [{ name: 'patch' }, { name: 'major' }]
+            labels: [{ name: 'major' }]
         }));
     });
 
-    it('should let the most significant label win', () => {
+    it('should bump the major version', () => {
         result.version?.version.should.equal('2.0.0');
     });
 });
