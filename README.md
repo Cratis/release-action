@@ -22,7 +22,13 @@ output as `no-release` rather than `no-label`, so a workflow that fails on a for
 on a deliberate one.
 
 A merged pull request carrying more than one of these - `major` with `patch`, or a bump with `no-release` - releases
-nothing and reports the `reason` output as `error`, logging the labels it found. Remove all but one and re-run the publishing workflow.
+nothing and reports the `reason` output as `error`, logging the labels it found. Remove all but one, then release:
+
+* A workflow triggered by `push` finds the merged pull request and its labels from the commit when it runs, so
+  re-running it picks up the corrected labels.
+* A workflow triggered by `pull_request` reads the pull request from the event payload, and a re-run replays the
+  payload of the original run, with the old labels. Re-running it fails the same way. Release with a
+  `workflow_dispatch` run that passes an explicit `version` instead - see [Manual runs](#manual-runs).
 
 If none of these labels are present, it does not consider this to be a release: no GitHub release is produced
 and `should-publish` is `false`, with the `reason` output set to `no-label`.
