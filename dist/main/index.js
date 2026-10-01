@@ -40131,6 +40131,15 @@ class Versions {
      * would also misbehave - `semver.inc` does not increment a prerelease the way it increments a release.
      */
     async getReleaseVersion(pullRequest) {
+        // More than one release intent is a mistake in the pull request, not something to settle here: letting
+        // `no-release` win releases nothing without saying why, and letting the highest bump win releases a
+        // version nobody chose. Reported as an error so a workflow keyed off the reason fails visibly.
+        const intents = this.getIntents(pullRequest);
+        if (intents.length > 1) {
+            this._logger.error(`Pull request #${pullRequest.number} carries more than one release intent (${intents.join(', ')}) - nothing will be released. Keep exactly one of major, minor, patch or no-release.`);
+            this.logLabels(pullRequest);
+            return VersionInfo.noReleaseBecause('error');
+        }
         // Checked ahead of the bump labels: `no-release` is a decision that nothing consumer-facing changed,
         // not an omission, so it must never be reported as the same 'no-label' reason a forgotten label would
         // be - that reason is what a workflow fails a run over.
@@ -40182,7 +40191,7 @@ class Versions {
         return VersionInfo.releaseOf(version, this.isIsolatedForPullRequest(version, pullRequest), latest.version);
     }
     /**
-     * The release label that decides the bump, with major taking precedence over minor over patch. Which label
+     * The release label that decides the bump; a pull request carrying more than one never gets here. Which label
      * names count is configurable, so a repository can keep its own conventions.
      */
     getBump(pullRequest) {
@@ -40194,6 +40203,20 @@ class Versions {
         if (has(this._options.patchLabels))
             return 'patch';
         return undefined;
+    }
+    /**
+     * The distinct release intents the pull request's labels express, in the order major, minor, patch and
+     * no-release. Two label names configured for the same intent count once.
+     */
+    getIntents(pullRequest) {
+        const has = (names) => pullRequest.labels.some(label => names.includes(label.name ?? ''));
+        const intents = [
+            ['major', this._options.majorLabels],
+            ['minor', this._options.minorLabels],
+            ['patch', this._options.patchLabels],
+            ['no-release', this._options.noReleaseLabels]
+        ];
+        return intents.filter(([, names]) => has(names)).map(([intent]) => intent);
     }
     /**
      * Whether the pull request carries the label that means "deliberately nothing to release". Which label

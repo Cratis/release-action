@@ -73,7 +73,8 @@ export type NotReleasedReason =
     | 'placeholder-version'
 
     /**
-     * Working out the version failed. The action fails closed and releases nothing, which is safe - but it is
+     * Working out the version failed, or the merged pull request carries more than one release intent (`major`
+     * with `patch`, or a bump with `no-release`). The action fails closed and releases nothing, which is safe - but it is
      * indistinguishable from a deliberate no-release unless the reason says so. Worth failing a workflow over.
      */
     | 'error';

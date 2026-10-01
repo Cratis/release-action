@@ -21,6 +21,17 @@ documentation, CI, tooling or spec-only changes. This is a decision, not an omis
 output as `no-release` rather than `no-label`, so a workflow that fails on a forgotten label does not also fail
 on a deliberate one.
 
+A merged pull request carrying more than one of these - `major` with `patch`, or a bump with `no-release` - releases
+nothing and reports the `reason` output as `error`, logging the labels it found. Remove all but one, then release:
+
+* A workflow triggered by `push` finds the merged pull request and its labels from the commit when it runs, so
+  re-running it picks up the corrected labels.
+* A workflow triggered by `pull_request` reads the pull request from the event payload, and a re-run replays the
+  payload of the original run, with the old labels. Re-running it fails the same way. Release with a
+  `workflow_dispatch` run that passes an explicit `version` instead - see [Manual runs](#manual-runs) - and pass the
+  merged pull request's description as the `release-notes` input. Without it the release has no notes of the
+  pull request's and closes none of the issues it delivered.
+
 If none of these labels are present, it does not consider this to be a release: no GitHub release is produced
 and `should-publish` is `false`, with the `reason` output set to `no-label`.
 
@@ -228,7 +239,10 @@ finished publishing.
 The action is built to run automatically on merges, but you can also trigger it by hand with a
 `workflow_dispatch` that passes an explicit `version`. Leave `version` empty (or at the `0.0.0` placeholder the
 publish templates ship) and the action releases nothing - it never cuts a `0.0.0` release from an unfilled
-default. Pass a real version to force a release; pass `release-notes` too, or GitHub generates the notes.
+default. Pass a real version to force a release; pass `release-notes` too, or GitHub generates the notes. When a
+manual run stands in for a merged pull request (for example after fixing conflicting labels in a `pull_request`-triggered
+Publish workflow), pass that pull request's description as `release-notes`: a manual run has no pull request to read,
+so the notes, and the issues they close, come only from that input.
 
 ## Inputs
 
@@ -274,7 +288,7 @@ run behind. The `reason` output says which it was.
 | `no-prerelease-version` | An open pull request that yields no prerelease | yes |
 | `placeholder-version` | A manual run left at the `0.0.0` placeholder | yes |
 | **`no-label`** | **Merged, but carries no version label - the release was lost** | **no** |
-| **`error`** | **Working out the version failed; the action failed closed** | **no** |
+| **`error`** | **Working out the version failed, or the pull request carries more than one release label; the action failed closed** | **no** |
 
 The two in bold are the ones worth failing a workflow over. Everything else is a legitimate reason to publish
 nothing, and failing on those would cry wolf on every commit pushed straight to the branch.
