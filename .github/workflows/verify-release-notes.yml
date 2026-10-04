@@ -34,4 +34,4 @@ jobs:
   release-notes:
     uses: Cratis/Workflows/.github/workflows/verify-release-notes.yml@main
     with:
-      runs-on: ${{ vars.RUNNER_GATE || 'ubuntu-latest' }}
+      runs-on: ${{ vars.RUNNER_GATE || 'cratis-arc' }}
