@@ -118,6 +118,49 @@ describe('when removing comments from release notes', () => {
         ReleaseNotes.withoutComments(notes).should.equal(notes);
     });
 
+    it('should leave a comment shown inside a fenced block a list item opens', () => {
+        ReleaseNotes.withoutComments('1. ```html\n   <!-- example -->\n   ```\n\n<!-- guidance (#777) -->\n- One\n')
+            .should.equal('1. ```html\n   <!-- example -->\n   ```\n\n- One\n');
+    });
+
+    it('should remove a comment after the quote holding an unclosed fence ends', () => {
+        ReleaseNotes.withoutComments('> ```\n> code\n\n<!-- guidance -->\n- One\n').should.equal('> ```\n> code\n\n- One\n');
+    });
+
+    it('should leave a comment shown inside inline code that continues on the next line of a quote', () => {
+        const notes = '> Write `<!--\n> example -->` literally.\n';
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+    });
+
+    // Release notes come from whoever wrote the pull request description; no line may make reading them slow.
+    it('should read a long line of nested quotes quickly', () => {
+        const started = performance.now();
+        ReleaseNotes.withoutComments(`${'> '.repeat(40)}x\n<!-- a -->\n`).should.equal(`${'> '.repeat(40)}x\n`);
+        (performance.now() - started).should.be.lessThan(500);
+    });
+
+    it('should read a fence inside many nested quotes quickly', () => {
+        const quotes = '> '.repeat(40);
+        const notes = `${quotes}\`\`\`\n${`${quotes}line\n`.repeat(200)}${quotes}\`\`\`\n`;
+        const started = performance.now();
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+        (performance.now() - started).should.be.lessThan(500);
+    });
+
+    it('should read a paragraph of many code spans quickly', () => {
+        const notes = '`a`\n'.repeat(16000);
+        const started = performance.now();
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+        (performance.now() - started).should.be.lessThan(500);
+    });
+
+    it('should read notes full of comments that are never closed quickly', () => {
+        const notes = '<!--'.repeat(16000);
+        const started = performance.now();
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+        (performance.now() - started).should.be.lessThan(500);
+    });
+
     it('should give nothing for empty notes', () => {
         ReleaseNotes.withoutComments('').should.equal('');
     });

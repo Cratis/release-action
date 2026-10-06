@@ -17,12 +17,14 @@ export class ReleaseNotes {
     private static readonly commentStart = '<!--';
     private static readonly commentEnd = '-->';
 
-    // A fence can sit inside block quotes and be indented - inside a list item, for instance. A backtick fence's
-    // info string cannot hold a backtick: a line starting ```js``` is an inline code span, not a fence.
-    private static readonly fenceOpening = /^((?:[ ]{0,3}>[ \t]?)*)([ ]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
+    // A list item can open a fence on its own line: `1. ```html`. The marker's width counts as indentation.
+    private static readonly listMarker = /^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])[ ]+/;
+
+    // A backtick fence's info string cannot hold a backtick: a line starting ```js``` is an inline code span.
+    private static readonly fence = /^([ ]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
 
     // A code span is inline, so it never runs past the end of its block: a blank line, or a line that starts
-    // another block - a list item, a heading, a quote, a fence or a thematic break.
+    // another block - a list item, a heading, a deeper quote, a fence or a thematic break.
     private static readonly startOfAnotherBlock = /^[ \t]*(?:$|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)/;
 
     /**
@@ -40,6 +42,10 @@ export class ReleaseNotes {
         let published = '';
         let index = 0;
 
+        // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
+        // full of unclosed openings slow to read.
+        let unclosedFrom = notes.length;
+
         while (index < notes.length) {
             const end = ReleaseNotes.endOfCodeAt(notes, index);
             if (end > index) {
@@ -48,9 +54,11 @@ export class ReleaseNotes {
                 continue;
             }
 
-            if (notes.startsWith(ReleaseNotes.commentStart, index)) {
+            if (index < unclosedFrom && notes.startsWith(ReleaseNotes.commentStart, index)) {
                 const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
-                if (close !== -1) {
+                if (close === -1) {
+                    unclosedFrom = index;
+                } else {
                     const removed = ReleaseNotes.removeComment(notes, published, close + ReleaseNotes.commentEnd.length);
                     published = removed.published;
                     index = removed.next;
@@ -91,8 +99,8 @@ export class ReleaseNotes {
     }
 
     /**
-     * Drops the comment ending at an index from the notes. When nothing but whitespace shares its first and last lines, the whole of
-     * those lines goes with it.
+     * Drops the comment ending at an index from the notes. When nothing but whitespace shares its first and last
+     * lines, the whole of those lines goes with it.
      */
     private static removeComment(notes: string, published: string, end: number): { published: string; next: number } {
         const lineStart = published.lastIndexOf('\n') + 1;
@@ -112,27 +120,38 @@ export class ReleaseNotes {
 
     /**
      * The end of a fenced code block opening at the start of a line, or undefined when no fence opens there. The
-     * block closes at a line holding only a fence of the same character that is at least as long; a block that is
-     * never closed runs to the end of the notes, as Markdown renders it.
+     * block closes at a line holding only a fence of the same character that is at least as long, indented at most
+     * three spaces more than the opening one, or where the quote holding it ends. A block that is never closed runs
+     * to the end of the notes, as Markdown renders it.
      */
     private static endOfFencedBlock(notes: string, lineStart: number): number | undefined {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
-        const opening = ReleaseNotes.fenceOpening.exec(ReleaseNotes.lineAt(notes, lineStart, firstLineEnd));
+        const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
+
+        let rest = ReleaseNotes.lineAt(notes, quoted.end, firstLineEnd);
+        let markerWidth = 0;
+        for (let marker = ReleaseNotes.listMarker.exec(rest); marker; marker = ReleaseNotes.listMarker.exec(rest)) {
+            markerWidth += marker[0].length;
+            rest = rest.slice(marker[0].length);
+        }
+
+        const opening = ReleaseNotes.fence.exec(rest);
         if (!opening) {
             return undefined;
         }
 
-        // The closing fence sits in as many quotes as the opening one, and is indented at most three spaces more -
-        // a fence indented further is a line of the code, not its end.
-        const quotes = '[ ]{0,3}>[ \\t]?'.repeat((opening[1].match(/>/g) ?? []).length);
-        const indentation = opening[2].length + 3;
-        const fence = opening[3] ?? opening[4];
-        const closing = new RegExp(`^${quotes}[ ]{0,${indentation}}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        const fence = opening[2] ?? opening[3];
+        const indentation = markerWidth + opening[1].length + 3;
+        const closing = new RegExp(`^[ ]{0,${indentation}}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
 
         let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
-            if (closing.test(ReleaseNotes.lineAt(notes, line, lineEnd))) {
+            const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
+            if (inside.count < quoted.count) {
+                return line;
+            }
+            if (closing.test(ReleaseNotes.lineAt(notes, inside.end, lineEnd))) {
                 return ReleaseNotes.startOfNextLine(notes, lineEnd);
             }
             line = ReleaseNotes.startOfNextLine(notes, lineEnd);
@@ -148,10 +167,20 @@ export class ReleaseNotes {
     private static endOfCodeSpan(notes: string, start: number): number {
         const length = ReleaseNotes.backtickRunAt(notes, start);
         const afterOpening = start + length;
-        const blockEnd = ReleaseNotes.endOfBlock(notes, afterOpening);
+        const lineStart = notes.lastIndexOf('\n', start - 1) + 1;
+        const depth = ReleaseNotes.quotesAt(notes, lineStart, start).count;
 
         let index = afterOpening;
-        while (index < blockEnd) {
+        while (index < notes.length) {
+            if (notes[index] === '\n') {
+                const next = index + 1;
+                if (ReleaseNotes.startsAnotherBlock(notes, next, depth)) {
+                    return afterOpening;
+                }
+                index = next;
+                continue;
+            }
+
             if (notes[index] !== '`') {
                 index++;
                 continue;
@@ -168,19 +197,43 @@ export class ReleaseNotes {
     }
 
     /**
-     * Where the block holding an index ends - at the first following line that is blank or starts another block.
+     * Whether the line starting at an index leaves the block a code span sits in - by leaving the quotes it is in,
+     * or by starting another block inside them.
      */
-    private static endOfBlock(notes: string, index: number): number {
-        let lineEnd = ReleaseNotes.endOfLine(notes, index);
-        while (lineEnd < notes.length) {
-            const next = lineEnd + 1;
-            const nextEnd = ReleaseNotes.endOfLine(notes, next);
-            if (ReleaseNotes.startOfAnotherBlock.test(ReleaseNotes.lineAt(notes, next, nextEnd))) {
-                return lineEnd;
+    private static startsAnotherBlock(notes: string, lineStart: number, depth: number): boolean {
+        const lineEnd = ReleaseNotes.endOfLine(notes, lineStart);
+        const quoted = ReleaseNotes.quotesAt(notes, lineStart, lineEnd, depth);
+        return quoted.count < depth || ReleaseNotes.startOfAnotherBlock.test(ReleaseNotes.lineAt(notes, quoted.end, lineEnd));
+    }
+
+    /**
+     * Reads the block quote markers - `>`, each after at most three spaces and followed by an optional space - at
+     * the start of a line, up to a maximum. Read one character at a time, so a long run of markers costs no more
+     * than its length.
+     */
+    private static quotesAt(notes: string, lineStart: number, lineEnd: number, maximum = Number.MAX_SAFE_INTEGER): { count: number; end: number } {
+        let count = 0;
+        let end = lineStart;
+
+        while (count < maximum) {
+            let position = end;
+            while (position < lineEnd && position - end < 3 && notes[position] === ' ') {
+                position++;
             }
-            lineEnd = nextEnd;
+            if (position >= lineEnd || notes[position] !== '>') {
+                break;
+            }
+
+            position++;
+            if (position < lineEnd && (notes[position] === ' ' || notes[position] === '\t')) {
+                position++;
+            }
+
+            count++;
+            end = position;
         }
-        return notes.length;
+
+        return { count, end };
     }
 
     /**
