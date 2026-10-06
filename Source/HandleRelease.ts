@@ -5,6 +5,7 @@ import { IReleaseDecisions } from './IReleaseDecisions';
 import { IReleases } from './IReleases';
 import { ReleaseDecision } from './ReleaseDecision';
 import { ResolvedIssues } from './ResolvedIssues';
+import { VersionClaimedByAnotherCommit } from './VersionClaimedByAnotherCommit';
 
 /**
  * The post step of the action. Creates the GitHub release for the decision the main step recorded.
@@ -42,8 +43,16 @@ export class HandleRelease {
         const tag = decision.tag;
         const targetCommitish = decision.targetCommitish || this._context.sha;
 
-        if (await this._releases.existsForTag(tag)) {
-            this._logger.warn(`A release for '${tag}' already exists - skipping.`);
+        // The version can already be taken: by this commit when a parallel job got there first, or by another
+        // commit when a concurrent run worked out the same version and created its release first. Only the first
+        // is safe to skip - the second has to fail the run, or it goes on as though it had released.
+        const existingTarget = await this._releases.targetOf(tag);
+        if (existingTarget !== undefined) {
+            if (existingTarget !== targetCommitish) {
+                throw new VersionClaimedByAnotherCommit(tag, existingTarget, targetCommitish);
+            }
+
+            this._logger.warn(`A release for '${tag}' already exists for this commit - skipping.`);
             return;
         }
 

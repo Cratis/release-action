@@ -5,6 +5,7 @@ import { IActionContext } from './IActionContext';
 import { ILogger } from './ILogger';
 import { IReleases } from './IReleases';
 import { Release } from './Release';
+import { VersionClaimedByAnotherCommit } from './VersionClaimedByAnotherCommit';
 
 type ExistingRelease = {
     tag_name: string;
@@ -60,15 +61,16 @@ export class Releases implements IReleases {
         }
     }
 
-    async existsForTag(tag: string): Promise<boolean> {
+    async targetOf(tag: string): Promise<string | undefined> {
         const { owner, repo } = this._context.repo;
 
         try {
-            await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
-            this._logger.info(`A release already exists for tag '${tag}'.`);
-            return true;
+            const existing = await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
+            const target = existing.data.target_commitish;
+            this._logger.info(`A release already exists for tag '${tag}', pointing at '${target}'.`);
+            return target;
         } catch (ex) {
-            if ((ex as { status?: number }).status === 404) return false;
+            if ((ex as { status?: number }).status === 404) return undefined;
             throw ex;
         }
     }
@@ -98,15 +100,28 @@ export class Releases implements IReleases {
                 target_commitish: release.targetCommitish
             });
         } catch (ex) {
-            // GitHub answers 422 when a release for the tag already exists. The pre-flight checks catch the
-            // common case; this closes the race where a concurrent run created it in between, so a re-run or
-            // a parallel job never fails on an already-published release.
-            if ((ex as { status?: number }).status === 422) {
-                this._logger.warn(`A release for '${release.tag}' already exists - skipping.`);
-                return;
-            }
-            throw ex;
+            if ((ex as { status?: number }).status !== 422) throw ex;
+            await this.reconcileWithExisting(release, ex);
         }
+    }
+
+    /**
+     * GitHub answers 422 when a release for the tag already exists - which the pre-flight checks only miss when a
+     * concurrent run created it in between. The answer alone cannot say whose release that is: the same commit's
+     * means a parallel job already did this work, while another commit's means this run lost the version and must
+     * not carry on as though it had won. Reading the release back tells the two apart.
+     */
+    private async reconcileWithExisting(release: Release, rejection: unknown): Promise<void> {
+        const existingTarget = await this.targetOf(release.tag);
+
+        // No release for the tag after all, so the 422 was about something else in the request.
+        if (existingTarget === undefined) throw rejection;
+
+        if (existingTarget !== release.targetCommitish) {
+            throw new VersionClaimedByAnotherCommit(release.tag, existingTarget, release.targetCommitish);
+        }
+
+        this._logger.warn(`A release for '${release.tag}' already exists for this commit - skipping.`);
     }
 
     // Drafts have no tag in the repository yet, and this action never publishes prereleases, so neither can be

@@ -5,7 +5,7 @@ import { IReleases } from '../IReleases';
 
 export type StubbedReleases = IReleases & {
     getLatestReleaseVersion: SinonStub;
-    existsForTag: SinonStub;
+    targetOf: SinonStub;
     existsForSha: SinonStub;
     create: SinonStub;
 };
@@ -15,7 +15,7 @@ export type StubbedReleases = IReleases & {
  */
 export const someReleases = (latestReleaseVersion: SemVer = new SemVer('1.2.3')): StubbedReleases => ({
     getLatestReleaseVersion: sinon.stub().resolves(latestReleaseVersion),
-    existsForTag: sinon.stub().resolves(false),
+    targetOf: sinon.stub().resolves(undefined),
     existsForSha: sinon.stub().resolves(false),
     create: sinon.stub().resolves()
 });
