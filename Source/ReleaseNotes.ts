@@ -46,8 +46,19 @@ export class ReleaseNotes {
         // full of unclosed openings slow to read.
         let unclosedFrom = notes.length;
 
+        // The reading only moves forward, so the start of the current line is found by moving forward with it -
+        // searching back from every code span would make a long line full of them slow to read.
+        let lineStart = 0;
+        let lineScannedTo = 0;
+        const lineStartOf = (position: number): number => {
+            for (; lineScannedTo < position; lineScannedTo++) {
+                if (notes[lineScannedTo] === '\n') lineStart = lineScannedTo + 1;
+            }
+            return lineStart;
+        };
+
         while (index < notes.length) {
-            const end = ReleaseNotes.endOfCodeAt(notes, index);
+            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf);
             if (end > index) {
                 published += notes.slice(index, end);
                 index = end;
@@ -77,7 +88,7 @@ export class ReleaseNotes {
      * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
      * must be kept verbatim starts there.
      */
-    private static endOfCodeAt(notes: string, index: number): number {
+    private static endOfCodeAt(notes: string, index: number, lineStartOf: (position: number) => number): number {
         const atLineStart = index === 0 || notes[index - 1] === '\n';
         if (atLineStart) {
             const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index);
@@ -92,7 +103,7 @@ export class ReleaseNotes {
         }
 
         if (notes[index] === '`') {
-            return ReleaseNotes.endOfCodeSpan(notes, index);
+            return ReleaseNotes.endOfCodeSpan(notes, index, lineStartOf(index));
         }
 
         return index;
@@ -178,10 +189,9 @@ export class ReleaseNotes {
      * The end of an inline code span opening at an index - after the closing run of backticks of the same length.
      * A run that is never closed within its block is literal backticks, and ends right after itself.
      */
-    private static endOfCodeSpan(notes: string, start: number): number {
+    private static endOfCodeSpan(notes: string, start: number, lineStart: number): number {
         const length = ReleaseNotes.backtickRunAt(notes, start);
         const afterOpening = start + length;
-        const lineStart = notes.lastIndexOf('\n', start - 1) + 1;
         const depth = ReleaseNotes.quotesAt(notes, lineStart, start).count;
 
         let index = afterOpening;
