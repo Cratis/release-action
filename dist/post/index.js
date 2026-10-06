@@ -39655,6 +39655,15 @@ class ReleaseNotes {
         if (!notes) {
             return '';
         }
+        // A fence opened inside a list item and followed by a bare fence further left reads two ways: the bare fence
+        // closes the item's block, or the item ends there and the bare fence opens a new block. Markdown renders the
+        // second, but authors often mean the first. Both readings are taken and the one that removes more wins, so
+        // the ambiguity never keeps a hidden comment in the published notes.
+        const closedByOutdentedFence = ReleaseNotes.removeComments(notes, true);
+        const endedWithListItem = ReleaseNotes.removeComments(notes, false);
+        return endedWithListItem.length < closedByOutdentedFence.length ? endedWithListItem : closedByOutdentedFence;
+    }
+    static removeComments(notes, outdentedFenceCloses) {
         let published = '';
         let index = 0;
         // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
@@ -39675,7 +39684,7 @@ class ReleaseNotes {
             return lineStart;
         };
         while (index < notes.length) {
-            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences);
+            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses);
             if (end > index) {
                 published += notes.slice(index, end);
                 index = end;
@@ -39702,10 +39711,10 @@ class ReleaseNotes {
      * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
      * must be kept verbatim starts there.
      */
-    static endOfCodeAt(notes, index, lineStartOf, unclosedFences) {
+    static endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses) {
         const atLineStart = index === 0 || notes[index - 1] === '\n';
         if (atLineStart) {
-            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences);
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences, outdentedFenceCloses);
             if (fenceEnd !== undefined) {
                 return fenceEnd;
             }
@@ -39746,7 +39755,7 @@ class ReleaseNotes {
      * fence is read as plain text instead, its own backticks included. The worst that costs is a comment shown
      * inside that broken block.
      */
-    static endOfFencedBlock(notes, lineStart, unclosedFences) {
+    static endOfFencedBlock(notes, lineStart, unclosedFences, outdentedFenceCloses) {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
         const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
         let rest = ReleaseNotes.lineAt(notes, quoted.end, firstLineEnd);
@@ -39776,12 +39785,14 @@ class ReleaseNotes {
             if (inside.count < quoted.count) {
                 return line;
             }
-            // A closing fence is recognized before the list item is checked, so a closer written further left than
-            // its opening - common in hand-written list items - still closes the block rather than opening another.
             const text = ReleaseNotes.lineAt(notes, inside.end, lineEnd);
             const closed = closing.exec(text);
-            if (closed && ReleaseNotes.columnsOf(closed[1]) <= contentColumn + 3) {
-                return ReleaseNotes.startOfNextLine(notes, lineEnd);
+            if (closed) {
+                const columns = ReleaseNotes.columnsOf(closed[1]);
+                const outdented = columns < contentColumn;
+                if (columns <= contentColumn + 3 && (!outdented || outdentedFenceCloses)) {
+                    return ReleaseNotes.startOfNextLine(notes, lineEnd);
+                }
             }
             if (ReleaseNotes.leavesListItem(text, contentColumn)) {
                 return line;

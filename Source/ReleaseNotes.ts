@@ -43,6 +43,16 @@ export class ReleaseNotes {
             return '';
         }
 
+        // A fence opened inside a list item and followed by a bare fence further left reads two ways: the bare fence
+        // closes the item's block, or the item ends there and the bare fence opens a new block. Markdown renders the
+        // second, but authors often mean the first. Both readings are taken and the one that removes more wins, so
+        // the ambiguity never keeps a hidden comment in the published notes.
+        const closedByOutdentedFence = ReleaseNotes.removeComments(notes, true);
+        const endedWithListItem = ReleaseNotes.removeComments(notes, false);
+        return endedWithListItem.length < closedByOutdentedFence.length ? endedWithListItem : closedByOutdentedFence;
+    }
+
+    private static removeComments(notes: string, outdentedFenceCloses: boolean): string {
         let published = '';
         let index = 0;
 
@@ -54,6 +64,7 @@ export class ReleaseNotes {
         // searching back from every code span would make a long line full of them slow to read.
         let lineStart = 0;
         let lineScannedTo = 0;
+
         // A fence that found no closing line before the end of the notes will not find one from further down either;
         // remembering that keeps notes full of stray fences from being read again and again to the end.
         const unclosedFences = new Set<string>();
@@ -66,7 +77,7 @@ export class ReleaseNotes {
         };
 
         while (index < notes.length) {
-            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences);
+            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses);
             if (end > index) {
                 published += notes.slice(index, end);
                 index = end;
@@ -96,10 +107,10 @@ export class ReleaseNotes {
      * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
      * must be kept verbatim starts there.
      */
-    private static endOfCodeAt(notes: string, index: number, lineStartOf: (position: number) => number, unclosedFences: Set<string>): number {
+    private static endOfCodeAt(notes: string, index: number, lineStartOf: (position: number) => number, unclosedFences: Set<string>, outdentedFenceCloses: boolean): number {
         const atLineStart = index === 0 || notes[index - 1] === '\n';
         if (atLineStart) {
-            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences);
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences, outdentedFenceCloses);
             if (fenceEnd !== undefined) {
                 return fenceEnd;
             }
@@ -147,7 +158,7 @@ export class ReleaseNotes {
      * fence is read as plain text instead, its own backticks included. The worst that costs is a comment shown
      * inside that broken block.
      */
-    private static endOfFencedBlock(notes: string, lineStart: number, unclosedFences: Set<string>): number | undefined {
+    private static endOfFencedBlock(notes: string, lineStart: number, unclosedFences: Set<string>, outdentedFenceCloses: boolean): number | undefined {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
         const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
 
@@ -184,12 +195,14 @@ export class ReleaseNotes {
                 return line;
             }
 
-            // A closing fence is recognized before the list item is checked, so a closer written further left than
-            // its opening - common in hand-written list items - still closes the block rather than opening another.
             const text = ReleaseNotes.lineAt(notes, inside.end, lineEnd);
             const closed = closing.exec(text);
-            if (closed && ReleaseNotes.columnsOf(closed[1]) <= contentColumn + 3) {
-                return ReleaseNotes.startOfNextLine(notes, lineEnd);
+            if (closed) {
+                const columns = ReleaseNotes.columnsOf(closed[1]);
+                const outdented = columns < contentColumn;
+                if (columns <= contentColumn + 3 && (!outdented || outdentedFenceCloses)) {
+                    return ReleaseNotes.startOfNextLine(notes, lineEnd);
+                }
             }
             if (ReleaseNotes.leavesListItem(text, contentColumn)) {
                 return line;

@@ -198,6 +198,11 @@ describe('when removing comments from release notes', () => {
             .should.equal('- Example:\n  ```html\n  <!-- ex -->\n```\n## Changed\n```\ncode\n```\n');
     });
 
+    it('should remove a comment between blocks after a list item block that is never closed', () => {
+        ReleaseNotes.withoutComments('- Fixed thing:\n  ```\n  foo\n\n```\nbar\n```\n\n<!-- guidance (#5) -->\n\n```\nbaz\n```\n')
+            .should.equal('- Fixed thing:\n  ```\n  foo\n\n```\nbar\n```\n\n\n```\nbaz\n```\n');
+    });
+
     it('should measure tab indentation in columns', () => {
         ReleaseNotes.withoutComments('- Parent\n    - Child:\n\t\t```html\n\t\texample\n    <!-- guidance (#777) -->\n\t\t```\n')
             .should.equal('- Parent\n    - Child:\n\t\t```html\n\t\texample\n\t\t```\n');
