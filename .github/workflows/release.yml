@@ -16,6 +16,8 @@ on:
 
 permissions:
   contents: write
+  # Lets the action close the issues the release notes say the release resolves.
+  issues: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -23,7 +25,9 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ${{ vars.RUNNER_FORCE || 'cratis-arc' }}
+    # A public repository: hosted runners are free here, and cratis-arc does not serve public repositories (#206).
+    # RUNNER_FORCE still overrides.
+    runs-on: ${{ vars.RUNNER_FORCE || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout code

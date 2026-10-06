@@ -17,7 +17,9 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ${{ vars.RUNNER_FORCE || 'cratis-arc' }}
+    # A public repository: hosted runners are free here, and pull_request jobs of a public repository must not run
+    # on our self-hosted runners, where any fork could execute code (#206). RUNNER_FORCE still overrides.
+    runs-on: ${{ vars.RUNNER_FORCE || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout code
