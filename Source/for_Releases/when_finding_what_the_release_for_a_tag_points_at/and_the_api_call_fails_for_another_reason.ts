@@ -7,7 +7,7 @@ import { anActionContext } from '../../specs/anActionContext';
 
 // Anything other than a 404 is a real failure - swallowing it would risk creating a duplicate release, so it
 // must propagate.
-describe('when checking whether a release exists for a tag and the api fails for another reason', () => {
+describe('when finding what the release for a tag points at and the api call fails for another reason', () => {
     let thrown: unknown;
 
     beforeEach(async () => {
@@ -17,7 +17,7 @@ describe('when checking whether a release exists for a tag and the api fails for
         const releases = new Releases(fake.octokit, anActionContext(), new RecordingLogger());
 
         try {
-            await releases.existsForTag('v1.2.4');
+            await releases.targetOf('v1.2.4');
         } catch (ex) {
             thrown = ex;
         }

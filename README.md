@@ -74,6 +74,13 @@ When a release is created without notes of its own - a merged pull request with 
 `version` without `release-notes` - GitHub's own generated release notes are used, so the release always has a
 meaningful body rather than an empty one.
 
+HTML comments (`<!-- ... -->`) are removed from the notes before the release is created. Pull request templates
+carry their guidance in a comment, and authors often leave it in place; the release page hides it, but the
+published body would keep it for every API consumer. Comments shown inside fenced or inline code are left alone,
+and a comment that is never closed is kept as written. A fence that is never closed does not protect what follows
+it: the comments after a stray fence are still removed. Notes holding nothing but a comment count as no notes, so
+GitHub generates them.
+
 Every run also writes a short decision table to the job summary, so you can see at a glance what the action
 decided and why.
 
@@ -89,7 +96,9 @@ The post stage never works the version out for itself - it only acts on what the
 what guarantees the two stages cannot disagree, and that a run which decided against publishing cannot end up
 creating a release anyway. If the main stage never recorded a decision, the post stage releases nothing.
 
-Release creation is idempotent: an existing release for the same tag, or for the same commit, is left alone.
+Release creation is idempotent: an existing release for the same tag and commit, or for the same commit, is
+left alone. A release for the same tag that points at a **different** commit fails the post stage - see
+[Concurrent runs](#concurrent-runs).
 
 ## Usage
 
@@ -196,6 +205,9 @@ That form is the whole of the contract, and everything looser is deliberately le
 A reference inside code - a fenced example, or an inline mention of the syntax itself - is being shown rather
 than made, and is not read. These very notes are the reason: they document the form by writing it out, and the
 number in that example belongs to an unrelated issue.
+
+The issues are read from the notes as published, after HTML comments are removed, so a reference written only
+inside a comment closes nothing.
 
 An issue that is already closed is left exactly as it was, and a number that turns out to be a pull request is
 skipped - a release does not close a pull request.
@@ -321,6 +333,23 @@ second, higher one from the same commit. The action does not: when a release alr
 resolves to `already-released` with `should-publish` false, so the publishing jobs skip along with it. That
 makes re-running a completed run safe - which matters most on `push`, where re-running the workflow is the
 natural response to a publishing step that failed for its own reasons.
+
+## Concurrent runs
+
+Two runs that start close together - two merges a minute apart, with a concurrency group that does not
+serialize them - both read the same latest release and work out the same next version. Whichever creates its
+release first owns that version. The other run's post stage finds the release pointing at another commit and
+**fails**, naming the commit that claimed the version, instead of reporting success. Jobs that `need` the
+release job then do not run, so nothing is published under a version that belongs to another commit.
+Re-running the failed run works the version out again from the now-higher latest release.
+
+A manual run given an explicit `version` that is already released for another commit fails the same way. A
+re-run would ask for the same version again, so run it with a version that has not been released instead.
+
+The race is detected in the post stage, after the steps of the same job have already run. Publish from jobs
+that `need` the release job, or serialize the release workflow with a concurrency group that is not
+per-pull-request (for example `group: release-${{ github.repository }}` with `cancel-in-progress: false`), so a
+losing run cannot publish before it learns it lost.
 
 ## Developing
 

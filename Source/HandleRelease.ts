@@ -4,7 +4,9 @@ import { ILogger } from './ILogger';
 import { IReleaseDecisions } from './IReleaseDecisions';
 import { IReleases } from './IReleases';
 import { ReleaseDecision } from './ReleaseDecision';
+import { ReleaseNotes } from './ReleaseNotes';
 import { ResolvedIssues } from './ResolvedIssues';
+import { VersionClaimedByAnotherCommit } from './VersionClaimedByAnotherCommit';
 
 /**
  * The post step of the action. Creates the GitHub release for the decision the main step recorded.
@@ -42,8 +44,16 @@ export class HandleRelease {
         const tag = decision.tag;
         const targetCommitish = decision.targetCommitish || this._context.sha;
 
-        if (await this._releases.existsForTag(tag)) {
-            this._logger.warn(`A release for '${tag}' already exists - skipping.`);
+        // The version can already be taken: by this commit when a parallel job got there first, or by another
+        // commit when a concurrent run worked out the same version and created its release first. Only the first
+        // is safe to skip - the second has to fail the run, or it goes on as though it had released.
+        const existingTarget = await this._releases.targetOf(tag);
+        if (existingTarget !== undefined) {
+            if (existingTarget !== targetCommitish) {
+                throw new VersionClaimedByAnotherCommit(tag, existingTarget, targetCommitish);
+            }
+
+            this._logger.warn(`A release for '${tag}' already exists for this commit - skipping.`);
             return;
         }
 
@@ -54,21 +64,24 @@ export class HandleRelease {
 
         this._logger.info(`Creating release '${tag}' for commit '${targetCommitish}'.`);
 
+        const notes = ReleaseNotes.withoutComments(decision.releaseNotes);
+
         await this._releases.create({
             tag,
             name: `Release ${tag}`,
-            notes: decision.releaseNotes,
+            notes,
 
             // With no notes of our own, let GitHub compose them from the merged pull requests rather than
-            // cutting a release with an empty body.
-            generateNotes: decision.releaseNotes.trim() === '',
+            // cutting a release with an empty body. A description holding nothing but the template's comment
+            // counts as no notes.
+            generateNotes: notes.trim() === '',
             isPrerelease: decision.isPrerelease,
             targetCommitish
         });
 
         this._logger.info('GitHub release created.');
 
-        await this.closeResolvedIssues(decision);
+        await this.closeResolvedIssues(tag, notes);
     }
 
     /**
@@ -77,13 +90,16 @@ export class HandleRelease {
      * Done after the release exists, and never allowed to fail the step. The release is the thing that had to
      * happen; an issue left open because the API refused is a tidiness problem, while a step that fails after
      * publishing makes the run look as though nothing shipped.
+     *
+     * Read from the published notes, so an issue named only inside a comment the release does not show is not
+     * closed by it.
      */
-    private async closeResolvedIssues(decision: ReleaseDecision): Promise<void> {
+    private async closeResolvedIssues(tag: string, notes: string): Promise<void> {
         if (!this._closeResolvedIssues) {
             return;
         }
 
-        const resolved = ResolvedIssues.in(decision.releaseNotes);
+        const resolved = ResolvedIssues.in(notes);
         if (resolved.length === 0) {
             return;
         }
@@ -94,7 +110,7 @@ export class HandleRelease {
             try {
                 const closed = await this._issues.close(
                     issue,
-                    `Closed by release **${decision.tag}**.`);
+                    `Closed by release **${tag}**.`);
 
                 if (closed) {
                     this._logger.info(`Closed #${issue}.`);

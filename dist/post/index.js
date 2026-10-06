@@ -39615,6 +39615,316 @@ const dist_src_Octokit = Octokit.plugin(requestLog, legacyRestEndpointMethods, p
 );
 
 
+;// CONCATENATED MODULE: ./Source/ReleaseNotes.ts
+/**
+ * Turns the notes a release is cut with - a pull request description, or the notes a manual run was given - into
+ * the body that is published.
+ *
+ * Pull request templates carry their guidance in HTML comments, and authors often leave them in place. The release
+ * page hides a comment, but the published body keeps it, so every consumer of the raw body - feeds, aggregated
+ * release notes, anything reading the API - sees guidance that was never meant to be published. Closed comments
+ * are therefore removed.
+ *
+ * Code is left exactly as written. A fenced block or an inline span showing `<!-- ... -->` is an example of the
+ * syntax, not a comment, and removing it would change what the notes document. The notes are read from left to
+ * right the way Markdown reads them, so whichever starts first wins: backticks inside a comment are part of the
+ * comment, and a comment marker inside code is part of the code.
+ *
+ * Where Markdown is ambiguous or broken - an unclosed fence, say - the reading leans towards removing comments. A
+ * comment wrongly kept publishes hidden guidance and can close an issue it names; one wrongly removed only shortens
+ * an example in a block that was malformed already.
+ */
+class ReleaseNotes {
+    static commentStart = '<!--';
+    static commentEnd = '-->';
+    // A list item can open a fence on its own line: `1. ```html`. The marker's width counts as indentation.
+    static listMarker = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
+    // A backtick fence's info string cannot hold a backtick: a line starting ```js``` is an inline code span.
+    static fence = /^([ \t]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
+    // A code span is inline, so it never runs past the end of its block: a blank line, or a line that starts
+    // another block - a list item, a heading, a deeper quote, a fence, a thematic break or an HTML comment.
+    static startOfAnotherBlock = /^[ \t]*(?:$|<!--|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)/;
+    /**
+     * Removes the closed HTML comments from release notes, leaving fenced and inline code untouched. A comment
+     * that is alone on its lines takes those lines with it, so a template comment leaves no blank gap behind. A
+     * comment that is never closed is left alone - it is not clear where it was meant to end.
+     * @param notes The release notes.
+     * @returns The notes without their comments.
+     */
+    static withoutComments(notes) {
+        if (!notes) {
+            return '';
+        }
+        // A fence opened inside a list item and followed by a bare fence further left reads two ways: the bare fence
+        // closes the item's block, or the item ends there and the bare fence opens a new block. Markdown renders the
+        // second, but authors often mean the first. Both readings are taken and everything either of them removes is
+        // removed, so the ambiguity never keeps a comment that one of the readings sees in the published notes.
+        const removals = [
+            ...ReleaseNotes.removalsIn(notes, true),
+            ...ReleaseNotes.removalsIn(notes, false)
+        ].sort((left, right) => left[0] - right[0]);
+        let published = '';
+        let kept = 0;
+        for (const [start, end] of removals) {
+            if (start > kept) {
+                published += notes.slice(kept, start);
+            }
+            kept = Math.max(kept, end);
+        }
+        return published + notes.slice(kept);
+    }
+    /**
+     * The ranges of the notes - start inclusive, end exclusive - one reading of them removes.
+     */
+    static removalsIn(notes, outdentedFenceCloses) {
+        const removals = [];
+        let published = '';
+        let index = 0;
+        // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
+        // full of unclosed openings slow to read.
+        let unclosedFrom = notes.length;
+        // The reading only moves forward, so the start of the current line is found by moving forward with it -
+        // searching back from every code span would make a long line full of them slow to read.
+        let lineStart = 0;
+        let lineScannedTo = 0;
+        // A fence that found no closing line before the end of the notes will not find one from further down either;
+        // remembering that keeps notes full of stray fences from being read again and again to the end.
+        const unclosedFences = new Set();
+        const lineStartOf = (position) => {
+            for (; lineScannedTo < position; lineScannedTo++) {
+                if (notes[lineScannedTo] === '\n')
+                    lineStart = lineScannedTo + 1;
+            }
+            return lineStart;
+        };
+        while (index < notes.length) {
+            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses);
+            if (end > index) {
+                published += notes.slice(index, end);
+                index = end;
+                continue;
+            }
+            if (index < unclosedFrom && notes.startsWith(ReleaseNotes.commentStart, index)) {
+                const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
+                if (close === -1) {
+                    unclosedFrom = index;
+                }
+                else {
+                    const removed = ReleaseNotes.removeComment(notes, published, close + ReleaseNotes.commentEnd.length);
+                    removals.push([removed.withItsLines ? lineStartOf(index) : index, removed.next]);
+                    published = removed.published;
+                    index = removed.next;
+                    continue;
+                }
+            }
+            published += notes[index];
+            index++;
+        }
+        return removals;
+    }
+    /**
+     * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
+     * must be kept verbatim starts there.
+     */
+    static endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses) {
+        const atLineStart = index === 0 || notes[index - 1] === '\n';
+        if (atLineStart) {
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences, outdentedFenceCloses);
+            if (fenceEnd !== undefined) {
+                return fenceEnd;
+            }
+        }
+        // An escaped character is literal - `\<!--` is not a comment and `` \` `` does not start a code span.
+        if (notes[index] === '\\' && index + 1 < notes.length) {
+            return index + 2;
+        }
+        if (notes[index] === '`') {
+            return ReleaseNotes.endOfCodeSpan(notes, index, lineStartOf(index));
+        }
+        return index;
+    }
+    /**
+     * Drops the comment ending at an index from the notes. When nothing but whitespace shares its first and last
+     * lines, the whole of those lines goes with it.
+     */
+    static removeComment(notes, published, end) {
+        const lineStart = published.lastIndexOf('\n') + 1;
+        const newline = notes.indexOf('\n', end);
+        const lineEnd = newline === -1 ? notes.length : newline;
+        const aloneOnItsLines = published.slice(lineStart).trim() === '' && notes.slice(end, lineEnd).trim() === '';
+        if (!aloneOnItsLines) {
+            return { published, next: end, withItsLines: false };
+        }
+        return {
+            published: published.slice(0, lineStart),
+            next: newline === -1 ? notes.length : newline + 1,
+            withItsLines: true
+        };
+    }
+    /**
+     * The end of a fenced code block opening at the start of a line, or undefined when no fence opens there. The
+     * block closes at a line holding only a fence of the same character that is at least as long, indented at most
+     * three columns more than the opening one, or where the quote or list item holding it ends.
+     *
+     * A fence that is never closed is not treated as code. Markdown would render the rest of the notes as code, but
+     * then every comment after a stray fence would be published - and an issue it names closed - so an unclosed
+     * fence is read as plain text instead, its own backticks included. The worst that costs is a comment shown
+     * inside that broken block.
+     */
+    static endOfFencedBlock(notes, lineStart, unclosedFences, outdentedFenceCloses) {
+        const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
+        const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
+        let rest = ReleaseNotes.lineAt(notes, quoted.end, firstLineEnd);
+        let markers = '';
+        for (let marker = ReleaseNotes.listMarker.exec(rest); marker; marker = ReleaseNotes.listMarker.exec(rest)) {
+            markers += marker[0];
+            rest = rest.slice(marker[0].length);
+        }
+        const opening = ReleaseNotes.fence.exec(rest);
+        if (!opening) {
+            return undefined;
+        }
+        const fence = opening[2] ?? opening[3];
+        const afterOpeningFence = quoted.end + markers.length + opening[1].length + fence.length;
+        // An indented fence sits in a list item - opened on the marker's line or on a continuation line of the
+        // item - and the item's content starts where the fence does.
+        const contentColumn = ReleaseNotes.columnsOf(markers + opening[1]);
+        const kind = `${fence}:${quoted.count}:${contentColumn}`;
+        if (unclosedFences.has(kind)) {
+            return afterOpeningFence;
+        }
+        const closing = new RegExp(`^([ \\t]*)${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
+        while (line < notes.length) {
+            const lineEnd = ReleaseNotes.endOfLine(notes, line);
+            const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
+            if (inside.count < quoted.count) {
+                return line;
+            }
+            const text = ReleaseNotes.lineAt(notes, inside.end, lineEnd);
+            const closed = closing.exec(text);
+            if (closed) {
+                const columns = ReleaseNotes.columnsOf(closed[1]);
+                const outdented = columns < contentColumn;
+                if (columns <= contentColumn + 3 && (!outdented || outdentedFenceCloses)) {
+                    return ReleaseNotes.startOfNextLine(notes, lineEnd);
+                }
+            }
+            if (ReleaseNotes.leavesListItem(text, contentColumn)) {
+                return line;
+            }
+            line = ReleaseNotes.startOfNextLine(notes, lineEnd);
+        }
+        unclosedFences.add(kind);
+        return afterOpeningFence;
+    }
+    /**
+     * Whether a line leaves the list item holding a fence - a line that is not blank and is indented less than the
+     * item's content.
+     */
+    static leavesListItem(line, contentColumn) {
+        if (contentColumn === 0 || line.trim() === '') {
+            return false;
+        }
+        return ReleaseNotes.columnsOf(line.slice(0, line.length - line.trimStart().length)) < contentColumn;
+    }
+    /**
+     * How many columns text at the start of a line takes up, with a tab advancing to the next multiple of four as
+     * Markdown counts it.
+     */
+    static columnsOf(text) {
+        let columns = 0;
+        for (const character of text) {
+            columns = character === '\t' ? columns + 4 - (columns % 4) : columns + 1;
+        }
+        return columns;
+    }
+    /**
+     * The end of an inline code span opening at an index - after the closing run of backticks of the same length.
+     * A run that is never closed within its block is literal backticks, and ends right after itself.
+     */
+    static endOfCodeSpan(notes, start, lineStart) {
+        const length = ReleaseNotes.backtickRunAt(notes, start);
+        const afterOpening = start + length;
+        const depth = ReleaseNotes.quotesAt(notes, lineStart, start).count;
+        let index = afterOpening;
+        while (index < notes.length) {
+            if (notes[index] === '\n') {
+                const next = index + 1;
+                if (ReleaseNotes.startsAnotherBlock(notes, next, depth)) {
+                    return afterOpening;
+                }
+                index = next;
+                continue;
+            }
+            if (notes[index] !== '`') {
+                index++;
+                continue;
+            }
+            const run = ReleaseNotes.backtickRunAt(notes, index);
+            if (run === length) {
+                return index + run;
+            }
+            index += run;
+        }
+        return afterOpening;
+    }
+    /**
+     * Whether the line starting at an index leaves the block a code span sits in - by leaving the quotes it is in,
+     * or by starting another block inside them.
+     */
+    static startsAnotherBlock(notes, lineStart, depth) {
+        const lineEnd = ReleaseNotes.endOfLine(notes, lineStart);
+        const quoted = ReleaseNotes.quotesAt(notes, lineStart, lineEnd, depth);
+        return quoted.count < depth || ReleaseNotes.startOfAnotherBlock.test(ReleaseNotes.lineAt(notes, quoted.end, lineEnd));
+    }
+    /**
+     * Reads the block quote markers - `>`, each after at most three spaces and followed by an optional space - at
+     * the start of a line, up to a maximum. Read one character at a time, so a long run of markers costs no more
+     * than its length.
+     */
+    static quotesAt(notes, lineStart, lineEnd, maximum = Number.MAX_SAFE_INTEGER) {
+        let count = 0;
+        let end = lineStart;
+        while (count < maximum) {
+            let position = end;
+            while (position < lineEnd && position - end < 3 && notes[position] === ' ') {
+                position++;
+            }
+            if (position >= lineEnd || notes[position] !== '>') {
+                break;
+            }
+            position++;
+            if (position < lineEnd && (notes[position] === ' ' || notes[position] === '\t')) {
+                position++;
+            }
+            count++;
+            end = position;
+        }
+        return { count, end };
+    }
+    /**
+     * The text of a line, without the carriage return of a Windows line ending.
+     */
+    static lineAt(notes, start, end) {
+        return notes.slice(start, end).replace(/\r$/, '');
+    }
+    static backtickRunAt(notes, index) {
+        let end = index;
+        while (notes[end] === '`') {
+            end++;
+        }
+        return end - index;
+    }
+    static endOfLine(notes, index) {
+        const newline = notes.indexOf('\n', index);
+        return newline === -1 ? notes.length : newline;
+    }
+    static startOfNextLine(notes, lineEnd) {
+        return lineEnd < notes.length ? lineEnd + 1 : notes.length;
+    }
+}
+
 ;// CONCATENATED MODULE: ./Source/ResolvedIssues.ts
 /**
  * The issue numbers a set of release notes says the release resolves.
@@ -39664,7 +39974,35 @@ class ResolvedIssues {
     }
 }
 
+;// CONCATENATED MODULE: ./Source/VersionClaimedByAnotherCommit.ts
+/**
+ * The error raised when the release this run was about to create already exists for a different commit.
+ *
+ * Two runs that start close together both read the same latest release and both work out the same next version.
+ * Whichever creates its release first owns that version; the other has lost the race. Its artifacts would carry a
+ * version whose release points at someone else's commit and notes, so it must fail rather than report success.
+ * Re-running it works the version out again from the now-higher latest release.
+ *
+ * A manual run given an explicit version that is already released for another commit fails the same way; there the
+ * remedy is to choose a version that has not been released.
+ */
+class VersionClaimedByAnotherCommit extends Error {
+    tag;
+    claimedBy;
+    targetCommitish;
+    constructor(tag, claimedBy, targetCommitish) {
+        super(`The release '${tag}' already exists for commit '${claimedBy}', not for '${targetCommitish}' - another run claimed this version first. ` +
+            `Nothing may be published as '${tag}' from this commit. Re-run the workflow to work out the next version, or, for a manual run, choose a version that has not been released.`);
+        this.tag = tag;
+        this.claimedBy = claimedBy;
+        this.targetCommitish = targetCommitish;
+        this.name = 'VersionClaimedByAnotherCommit';
+    }
+}
+
 ;// CONCATENATED MODULE: ./Source/HandleRelease.ts
+
+
 
 /**
  * The post step of the action. Creates the GitHub release for the decision the main step recorded.
@@ -39702,8 +40040,15 @@ class HandleRelease {
     async createRelease(decision) {
         const tag = decision.tag;
         const targetCommitish = decision.targetCommitish || this._context.sha;
-        if (await this._releases.existsForTag(tag)) {
-            this._logger.warn(`A release for '${tag}' already exists - skipping.`);
+        // The version can already be taken: by this commit when a parallel job got there first, or by another
+        // commit when a concurrent run worked out the same version and created its release first. Only the first
+        // is safe to skip - the second has to fail the run, or it goes on as though it had released.
+        const existingTarget = await this._releases.targetOf(tag);
+        if (existingTarget !== undefined) {
+            if (existingTarget !== targetCommitish) {
+                throw new VersionClaimedByAnotherCommit(tag, existingTarget, targetCommitish);
+            }
+            this._logger.warn(`A release for '${tag}' already exists for this commit - skipping.`);
             return;
         }
         if (await this._releases.existsForSha(targetCommitish)) {
@@ -39711,18 +40056,20 @@ class HandleRelease {
             return;
         }
         this._logger.info(`Creating release '${tag}' for commit '${targetCommitish}'.`);
+        const notes = ReleaseNotes.withoutComments(decision.releaseNotes);
         await this._releases.create({
             tag,
             name: `Release ${tag}`,
-            notes: decision.releaseNotes,
+            notes,
             // With no notes of our own, let GitHub compose them from the merged pull requests rather than
-            // cutting a release with an empty body.
-            generateNotes: decision.releaseNotes.trim() === '',
+            // cutting a release with an empty body. A description holding nothing but the template's comment
+            // counts as no notes.
+            generateNotes: notes.trim() === '',
             isPrerelease: decision.isPrerelease,
             targetCommitish
         });
         this._logger.info('GitHub release created.');
-        await this.closeResolvedIssues(decision);
+        await this.closeResolvedIssues(tag, notes);
     }
     /**
      * Closes the issues the release notes say this release resolves.
@@ -39730,19 +40077,22 @@ class HandleRelease {
      * Done after the release exists, and never allowed to fail the step. The release is the thing that had to
      * happen; an issue left open because the API refused is a tidiness problem, while a step that fails after
      * publishing makes the run look as though nothing shipped.
+     *
+     * Read from the published notes, so an issue named only inside a comment the release does not show is not
+     * closed by it.
      */
-    async closeResolvedIssues(decision) {
+    async closeResolvedIssues(tag, notes) {
         if (!this._closeResolvedIssues) {
             return;
         }
-        const resolved = ResolvedIssues.in(decision.releaseNotes);
+        const resolved = ResolvedIssues.in(notes);
         if (resolved.length === 0) {
             return;
         }
         this._logger.info(`The release notes name ${resolved.length} issue(s) as resolved: ${resolved.map(_ => `#${_}`).join(', ')}.`);
         for (const issue of resolved) {
             try {
-                const closed = await this._issues.close(issue, `Closed by release **${decision.tag}**.`);
+                const closed = await this._issues.close(issue, `Closed by release **${tag}**.`);
                 if (closed) {
                     this._logger.info(`Closed #${issue}.`);
                 }
@@ -39809,6 +40159,8 @@ var semver = __nccwpck_require__(2088);
 var semver_default = /*#__PURE__*/__nccwpck_require__.n(semver);
 ;// CONCATENATED MODULE: ./Source/Releases.ts
 
+
+const commitSha = /^[0-9a-f]{40}$/i;
 // A fresh instance every time - `SemVer.inc()` mutates in place, so callers must never share one.
 const noReleasesYet = () => new semver.SemVer('0.0.0');
 class Releases {
@@ -39850,16 +40202,40 @@ class Releases {
             return noReleasesYet();
         }
     }
-    async existsForTag(tag) {
+    async targetOf(tag) {
         const { owner, repo } = this._context.repo;
         try {
-            await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
-            this._logger.info(`A release already exists for tag '${tag}'.`);
-            return true;
+            const existing = await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
+            const target = await this.commitOf(tag, existing.data.target_commitish);
+            this._logger.info(`A release already exists for tag '${tag}', pointing at '${target}'.`);
+            return target;
         }
         catch (ex) {
             if (ex.status === 404)
-                return false;
+                return undefined;
+            throw ex;
+        }
+    }
+    /**
+     * The commit a release points at. This action always creates releases with a commit, but a release created by
+     * hand records the branch it was cut from - `main` - and only its tag says which commit that was.
+     */
+    async commitOf(tag, targetCommitish) {
+        if (commitSha.test(targetCommitish))
+            return targetCommitish;
+        const { owner, repo } = this._context.repo;
+        try {
+            const ref = await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` });
+            if (ref.data.object.type !== 'tag')
+                return ref.data.object.sha;
+            // An annotated tag points at a tag object, which in turn points at the commit.
+            const annotated = await this._octokit.git.getTag({ owner, repo, tag_sha: ref.data.object.sha });
+            return annotated.data.object.sha;
+        }
+        catch (ex) {
+            // A draft release has no tag yet - all there is to compare is what the release itself records.
+            if (ex.status === 404)
+                return targetCommitish;
             throw ex;
         }
     }
@@ -39886,15 +40262,26 @@ class Releases {
             });
         }
         catch (ex) {
-            // GitHub answers 422 when a release for the tag already exists. The pre-flight checks catch the
-            // common case; this closes the race where a concurrent run created it in between, so a re-run or
-            // a parallel job never fails on an already-published release.
-            if (ex.status === 422) {
-                this._logger.warn(`A release for '${release.tag}' already exists - skipping.`);
-                return;
-            }
-            throw ex;
+            if (ex.status !== 422)
+                throw ex;
+            await this.reconcileWithExisting(release, ex);
         }
+    }
+    /**
+     * GitHub answers 422 when a release for the tag already exists - which the pre-flight checks only miss when a
+     * concurrent run created it in between. The answer alone cannot say whose release that is: the same commit's
+     * means a parallel job already did this work, while another commit's means this run lost the version and must
+     * not carry on as though it had won. Reading the release back tells the two apart.
+     */
+    async reconcileWithExisting(release, rejection) {
+        const existingTarget = await this.targetOf(release.tag);
+        // No release for the tag after all, so the 422 was about something else in the request.
+        if (existingTarget === undefined)
+            throw rejection;
+        if (existingTarget !== release.targetCommitish) {
+            throw new VersionClaimedByAnotherCommit(release.tag, existingTarget, release.targetCommitish);
+        }
+        this._logger.warn(`A release for '${release.tag}' already exists for this commit - skipping.`);
     }
     // Drafts have no tag in the repository yet, and this action never publishes prereleases, so neither can be
     // the basis for the next release version.

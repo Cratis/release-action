@@ -5,6 +5,7 @@ import { IActionContext } from './IActionContext';
 import { ILogger } from './ILogger';
 import { IReleases } from './IReleases';
 import { Release } from './Release';
+import { VersionClaimedByAnotherCommit } from './VersionClaimedByAnotherCommit';
 
 type ExistingRelease = {
     tag_name: string;
@@ -16,6 +17,8 @@ type ExistingRelease = {
 type ExistingTag = {
     name: string;
 };
+
+const commitSha = /^[0-9a-f]{40}$/i;
 
 // A fresh instance every time - `SemVer.inc()` mutates in place, so callers must never share one.
 const noReleasesYet = () => new SemVer('0.0.0');
@@ -60,15 +63,38 @@ export class Releases implements IReleases {
         }
     }
 
-    async existsForTag(tag: string): Promise<boolean> {
+    async targetOf(tag: string): Promise<string | undefined> {
         const { owner, repo } = this._context.repo;
 
         try {
-            await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
-            this._logger.info(`A release already exists for tag '${tag}'.`);
-            return true;
+            const existing = await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
+            const target = await this.commitOf(tag, existing.data.target_commitish);
+            this._logger.info(`A release already exists for tag '${tag}', pointing at '${target}'.`);
+            return target;
         } catch (ex) {
-            if ((ex as { status?: number }).status === 404) return false;
+            if ((ex as { status?: number }).status === 404) return undefined;
+            throw ex;
+        }
+    }
+
+    /**
+     * The commit a release points at. This action always creates releases with a commit, but a release created by
+     * hand records the branch it was cut from - `main` - and only its tag says which commit that was.
+     */
+    private async commitOf(tag: string, targetCommitish: string): Promise<string> {
+        if (commitSha.test(targetCommitish)) return targetCommitish;
+
+        const { owner, repo } = this._context.repo;
+        try {
+            const ref = await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` });
+            if (ref.data.object.type !== 'tag') return ref.data.object.sha;
+
+            // An annotated tag points at a tag object, which in turn points at the commit.
+            const annotated = await this._octokit.git.getTag({ owner, repo, tag_sha: ref.data.object.sha });
+            return annotated.data.object.sha;
+        } catch (ex) {
+            // A draft release has no tag yet - all there is to compare is what the release itself records.
+            if ((ex as { status?: number }).status === 404) return targetCommitish;
             throw ex;
         }
     }
@@ -98,15 +124,28 @@ export class Releases implements IReleases {
                 target_commitish: release.targetCommitish
             });
         } catch (ex) {
-            // GitHub answers 422 when a release for the tag already exists. The pre-flight checks catch the
-            // common case; this closes the race where a concurrent run created it in between, so a re-run or
-            // a parallel job never fails on an already-published release.
-            if ((ex as { status?: number }).status === 422) {
-                this._logger.warn(`A release for '${release.tag}' already exists - skipping.`);
-                return;
-            }
-            throw ex;
+            if ((ex as { status?: number }).status !== 422) throw ex;
+            await this.reconcileWithExisting(release, ex);
         }
+    }
+
+    /**
+     * GitHub answers 422 when a release for the tag already exists - which the pre-flight checks only miss when a
+     * concurrent run created it in between. The answer alone cannot say whose release that is: the same commit's
+     * means a parallel job already did this work, while another commit's means this run lost the version and must
+     * not carry on as though it had won. Reading the release back tells the two apart.
+     */
+    private async reconcileWithExisting(release: Release, rejection: unknown): Promise<void> {
+        const existingTarget = await this.targetOf(release.tag);
+
+        // No release for the tag after all, so the 422 was about something else in the request.
+        if (existingTarget === undefined) throw rejection;
+
+        if (existingTarget !== release.targetCommitish) {
+            throw new VersionClaimedByAnotherCommit(release.tag, existingTarget, release.targetCommitish);
+        }
+
+        this._logger.warn(`A release for '${release.tag}' already exists for this commit - skipping.`);
     }
 
     // Drafts have no tag in the repository yet, and this action never publishes prereleases, so neither can be
