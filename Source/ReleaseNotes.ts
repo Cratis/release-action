@@ -16,8 +16,14 @@ export class ReleaseNotes {
 
     private static readonly commentStart = '<!--';
     private static readonly commentEnd = '-->';
-    private static readonly fenceOpening = /^[ \t]*(`{3,}|~{3,})/;
-    private static readonly blankLine = /\n[ \t]*\n/g;
+
+    // A fence can sit inside block quotes and be indented - inside a list item, for instance. A backtick fence's
+    // info string cannot hold a backtick: a line starting ```js``` is an inline code span, not a fence.
+    private static readonly fenceOpening = /^((?:[ ]{0,3}>[ \t]?)*)([ ]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
+
+    // A code span is inline, so it never runs past the end of its block: a blank line, or a line that starts
+    // another block - a list item, a heading, a quote, a fence or a thematic break.
+    private static readonly startOfAnotherBlock = /^[ \t]*(?:$|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)/;
 
     /**
      * Removes the closed HTML comments from release notes, leaving fenced and inline code untouched. A comment
@@ -111,18 +117,22 @@ export class ReleaseNotes {
      */
     private static endOfFencedBlock(notes: string, lineStart: number): number | undefined {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
-        const opening = ReleaseNotes.fenceOpening.exec(notes.slice(lineStart, firstLineEnd));
+        const opening = ReleaseNotes.fenceOpening.exec(ReleaseNotes.lineAt(notes, lineStart, firstLineEnd));
         if (!opening) {
             return undefined;
         }
 
-        const fence = opening[1];
-        const closing = new RegExp(`^[ \\t]*${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        // The closing fence sits in as many quotes as the opening one, and is indented at most three spaces more -
+        // a fence indented further is a line of the code, not its end.
+        const quotes = '[ ]{0,3}>[ \\t]?'.repeat((opening[1].match(/>/g) ?? []).length);
+        const indentation = opening[2].length + 3;
+        const fence = opening[3] ?? opening[4];
+        const closing = new RegExp(`^${quotes}[ ]{0,${indentation}}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
 
         let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
-            if (closing.test(notes.slice(line, lineEnd).replace(/\r$/, ''))) {
+            if (closing.test(ReleaseNotes.lineAt(notes, line, lineEnd))) {
                 return ReleaseNotes.startOfNextLine(notes, lineEnd);
             }
             line = ReleaseNotes.startOfNextLine(notes, lineEnd);
@@ -133,17 +143,15 @@ export class ReleaseNotes {
 
     /**
      * The end of an inline code span opening at an index - after the closing run of backticks of the same length.
-     * A run that is never closed within its paragraph is literal backticks, and ends right after itself.
+     * A run that is never closed within its block is literal backticks, and ends right after itself.
      */
     private static endOfCodeSpan(notes: string, start: number): number {
         const length = ReleaseNotes.backtickRunAt(notes, start);
         const afterOpening = start + length;
-
-        ReleaseNotes.blankLine.lastIndex = afterOpening;
-        const paragraphEnd = ReleaseNotes.blankLine.exec(notes)?.index ?? notes.length;
+        const blockEnd = ReleaseNotes.endOfBlock(notes, afterOpening);
 
         let index = afterOpening;
-        while (index < paragraphEnd) {
+        while (index < blockEnd) {
             if (notes[index] !== '`') {
                 index++;
                 continue;
@@ -157,6 +165,29 @@ export class ReleaseNotes {
         }
 
         return afterOpening;
+    }
+
+    /**
+     * Where the block holding an index ends - at the first following line that is blank or starts another block.
+     */
+    private static endOfBlock(notes: string, index: number): number {
+        let lineEnd = ReleaseNotes.endOfLine(notes, index);
+        while (lineEnd < notes.length) {
+            const next = lineEnd + 1;
+            const nextEnd = ReleaseNotes.endOfLine(notes, next);
+            if (ReleaseNotes.startOfAnotherBlock.test(ReleaseNotes.lineAt(notes, next, nextEnd))) {
+                return lineEnd;
+            }
+            lineEnd = nextEnd;
+        }
+        return notes.length;
+    }
+
+    /**
+     * The text of a line, without the carriage return of a Windows line ending.
+     */
+    private static lineAt(notes: string, start: number, end: number): string {
+        return notes.slice(start, end).replace(/\r$/, '');
     }
 
     private static backtickRunAt(notes: string, index: number): number {

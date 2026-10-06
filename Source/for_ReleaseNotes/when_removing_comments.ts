@@ -81,6 +81,43 @@ describe('when removing comments from release notes', () => {
         ReleaseNotes.withoutComments('<!-- a -->\r\n- One\r\n').should.equal('- One\r\n');
     });
 
+    it('should leave a comment shown inside a fenced block in a quote', () => {
+        const notes = '> ~~~html\n> <!-- example -->\n> ~~~\n';
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+    });
+
+    it('should leave a comment shown inside a fenced block in a list item', () => {
+        const notes = '- An example:\n\n    ```\n    <!-- example -->\n    ```\n';
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+    });
+
+    // A fence indented four spaces more than its opening is a line of the code, not the end of the block.
+    it('should leave a comment after a line that only looks like a closing fence', () => {
+        const notes = '```\ncode\n    ```\n<!-- example -->\n```\n';
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+    });
+
+    // A backtick fence cannot carry a backtick in its info string, so a line starting ```js``` is inline code.
+    it('should remove a comment after a line starting with inline code written with three backticks', () => {
+        ReleaseNotes.withoutComments('```js``` inline\n<!-- guidance (#123) -->\n- One\n').should.equal('```js``` inline\n- One\n');
+    });
+
+    // A code span never crosses a blank line - also not when the notes use Windows line endings, as descriptions
+    // saved from the GitHub web interface do.
+    it('should remove a comment between lone backticks in separate paragraphs with Windows line endings', () => {
+        ReleaseNotes.withoutComments('A literal `\r\n\r\n<!-- guidance (#123) -->\r\n\r\nAnother `\r\n')
+            .should.equal('A literal `\r\n\r\n\r\nAnother `\r\n');
+    });
+
+    it('should remove a comment between lone backticks in separate list items', () => {
+        ReleaseNotes.withoutComments('- A ` lone\n- B <!-- hidden --> `y`').should.equal('- A ` lone\n- B  `y`');
+    });
+
+    it('should leave a comment shown inside inline code that continues on the next line', () => {
+        const notes = 'Write `<!--\nguidance -->` like so';
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+    });
+
     it('should give nothing for empty notes', () => {
         ReleaseNotes.withoutComments('').should.equal('');
     });

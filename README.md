@@ -342,6 +342,9 @@ release first owns that version. The other run's post stage finds the release po
 release job then do not run, so nothing is published under a version that belongs to another commit.
 Re-running the failed run works the version out again from the now-higher latest release.
 
+A manual run given an explicit `version` that is already released for another commit fails the same way. A
+re-run would ask for the same version again, so run it with a version that has not been released instead.
+
 The race is detected in the post stage, after the steps of the same job have already run. Publish from jobs
 that `need` the release job, or serialize the release workflow with a concurrency group that is not
 per-pull-request (for example `group: release-${{ github.repository }}` with `cancel-in-progress: false`), so a

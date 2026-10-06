@@ -39633,8 +39633,12 @@ const dist_src_Octokit = Octokit.plugin(requestLog, legacyRestEndpointMethods, p
 class ReleaseNotes {
     static commentStart = '<!--';
     static commentEnd = '-->';
-    static fenceOpening = /^[ \t]*(`{3,}|~{3,})/;
-    static blankLine = /\n[ \t]*\n/g;
+    // A fence can sit inside block quotes and be indented - inside a list item, for instance. A backtick fence's
+    // info string cannot hold a backtick: a line starting ```js``` is an inline code span, not a fence.
+    static fenceOpening = /^((?:[ ]{0,3}>[ \t]?)*)([ ]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
+    // A code span is inline, so it never runs past the end of its block: a blank line, or a line that starts
+    // another block - a list item, a heading, a quote, a fence or a thematic break.
+    static startOfAnotherBlock = /^[ \t]*(?:$|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)/;
     /**
      * Removes the closed HTML comments from release notes, leaving fenced and inline code untouched. A comment
      * that is alone on its lines takes those lines with it, so a template comment leaves no blank gap behind. A
@@ -39714,16 +39718,20 @@ class ReleaseNotes {
      */
     static endOfFencedBlock(notes, lineStart) {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
-        const opening = ReleaseNotes.fenceOpening.exec(notes.slice(lineStart, firstLineEnd));
+        const opening = ReleaseNotes.fenceOpening.exec(ReleaseNotes.lineAt(notes, lineStart, firstLineEnd));
         if (!opening) {
             return undefined;
         }
-        const fence = opening[1];
-        const closing = new RegExp(`^[ \\t]*${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        // The closing fence sits in as many quotes as the opening one, and is indented at most three spaces more -
+        // a fence indented further is a line of the code, not its end.
+        const quotes = '[ ]{0,3}>[ \\t]?'.repeat((opening[1].match(/>/g) ?? []).length);
+        const indentation = opening[2].length + 3;
+        const fence = opening[3] ?? opening[4];
+        const closing = new RegExp(`^${quotes}[ ]{0,${indentation}}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
         let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
-            if (closing.test(notes.slice(line, lineEnd).replace(/\r$/, ''))) {
+            if (closing.test(ReleaseNotes.lineAt(notes, line, lineEnd))) {
                 return ReleaseNotes.startOfNextLine(notes, lineEnd);
             }
             line = ReleaseNotes.startOfNextLine(notes, lineEnd);
@@ -39732,15 +39740,14 @@ class ReleaseNotes {
     }
     /**
      * The end of an inline code span opening at an index - after the closing run of backticks of the same length.
-     * A run that is never closed within its paragraph is literal backticks, and ends right after itself.
+     * A run that is never closed within its block is literal backticks, and ends right after itself.
      */
     static endOfCodeSpan(notes, start) {
         const length = ReleaseNotes.backtickRunAt(notes, start);
         const afterOpening = start + length;
-        ReleaseNotes.blankLine.lastIndex = afterOpening;
-        const paragraphEnd = ReleaseNotes.blankLine.exec(notes)?.index ?? notes.length;
+        const blockEnd = ReleaseNotes.endOfBlock(notes, afterOpening);
         let index = afterOpening;
-        while (index < paragraphEnd) {
+        while (index < blockEnd) {
             if (notes[index] !== '`') {
                 index++;
                 continue;
@@ -39752,6 +39759,27 @@ class ReleaseNotes {
             index += run;
         }
         return afterOpening;
+    }
+    /**
+     * Where the block holding an index ends - at the first following line that is blank or starts another block.
+     */
+    static endOfBlock(notes, index) {
+        let lineEnd = ReleaseNotes.endOfLine(notes, index);
+        while (lineEnd < notes.length) {
+            const next = lineEnd + 1;
+            const nextEnd = ReleaseNotes.endOfLine(notes, next);
+            if (ReleaseNotes.startOfAnotherBlock.test(ReleaseNotes.lineAt(notes, next, nextEnd))) {
+                return lineEnd;
+            }
+            lineEnd = nextEnd;
+        }
+        return notes.length;
+    }
+    /**
+     * The text of a line, without the carriage return of a Windows line ending.
+     */
+    static lineAt(notes, start, end) {
+        return notes.slice(start, end).replace(/\r$/, '');
     }
     static backtickRunAt(notes, index) {
         let end = index;
@@ -39826,14 +39854,17 @@ class ResolvedIssues {
  * Whichever creates its release first owns that version; the other has lost the race. Its artifacts would carry a
  * version whose release points at someone else's commit and notes, so it must fail rather than report success.
  * Re-running it works the version out again from the now-higher latest release.
+ *
+ * A manual run given an explicit version that is already released for another commit fails the same way; there the
+ * remedy is to choose a version that has not been released.
  */
 class VersionClaimedByAnotherCommit extends Error {
     tag;
     claimedBy;
     targetCommitish;
     constructor(tag, claimedBy, targetCommitish) {
-        super(`The release '${tag}' already exists for commit '${claimedBy}', not for '${targetCommitish}' - a concurrent run claimed this version first. ` +
-            `Nothing may be published as '${tag}' from this commit; re-run the workflow to release it under the next version.`);
+        super(`The release '${tag}' already exists for commit '${claimedBy}', not for '${targetCommitish}' - another run claimed this version first. ` +
+            `Nothing may be published as '${tag}' from this commit. Re-run the workflow to work out the next version, or, for a manual run, choose a version that has not been released.`);
         this.tag = tag;
         this.claimedBy = claimedBy;
         this.targetCommitish = targetCommitish;
