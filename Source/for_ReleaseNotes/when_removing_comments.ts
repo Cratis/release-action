@@ -193,6 +193,21 @@ describe('when removing comments from release notes', () => {
         (performance.now() - started).should.be.lessThan(500);
     });
 
+    it('should remove a comment between a fenced block closed further left than it opened and the next block', () => {
+        ReleaseNotes.withoutComments('- Example:\n  ```html\n  <!-- ex -->\n```\n<!-- guidance (#777) -->\n## Changed\n```\ncode\n```\n')
+            .should.equal('- Example:\n  ```html\n  <!-- ex -->\n```\n## Changed\n```\ncode\n```\n');
+    });
+
+    it('should measure tab indentation in columns', () => {
+        ReleaseNotes.withoutComments('- Parent\n    - Child:\n\t\t```html\n\t\texample\n    <!-- guidance (#777) -->\n\t\t```\n')
+            .should.equal('- Parent\n    - Child:\n\t\t```html\n\t\texample\n\t\t```\n');
+    });
+
+    // The backticks of a stray fence are text too - they must not pair with a later run and hide a comment.
+    it('should remove a comment after the backticks of a fence that is never closed', () => {
+        ReleaseNotes.withoutComments('```\nText <!-- guidance (#777) --> and ``` more\n').should.equal('```\nText  and ``` more\n');
+    });
+
     it('should give nothing for empty notes', () => {
         ReleaseNotes.withoutComments('').should.equal('');
     });

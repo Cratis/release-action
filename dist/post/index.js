@@ -39739,19 +39739,20 @@ class ReleaseNotes {
     /**
      * The end of a fenced code block opening at the start of a line, or undefined when no fence opens there. The
      * block closes at a line holding only a fence of the same character that is at least as long, indented at most
-     * three spaces more than the opening one, or where the quote or list item holding it ends.
+     * three columns more than the opening one, or where the quote or list item holding it ends.
      *
      * A fence that is never closed is not treated as code. Markdown would render the rest of the notes as code, but
      * then every comment after a stray fence would be published - and an issue it names closed - so an unclosed
-     * fence is read as plain text instead. The worst that costs is a comment shown inside that broken block.
+     * fence is read as plain text instead, its own backticks included. The worst that costs is a comment shown
+     * inside that broken block.
      */
     static endOfFencedBlock(notes, lineStart, unclosedFences) {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
         const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
         let rest = ReleaseNotes.lineAt(notes, quoted.end, firstLineEnd);
-        let markerWidth = 0;
+        let markers = '';
         for (let marker = ReleaseNotes.listMarker.exec(rest); marker; marker = ReleaseNotes.listMarker.exec(rest)) {
-            markerWidth += marker[0].length;
+            markers += marker[0];
             rest = rest.slice(marker[0].length);
         }
         const opening = ReleaseNotes.fence.exec(rest);
@@ -39759,40 +39760,57 @@ class ReleaseNotes {
             return undefined;
         }
         const fence = opening[2] ?? opening[3];
+        const afterOpeningFence = quoted.end + markers.length + opening[1].length + fence.length;
         // An indented fence sits in a list item - opened on the marker's line or on a continuation line of the
         // item - and the item's content starts where the fence does.
-        const contentColumn = markerWidth + opening[1].length;
+        const contentColumn = ReleaseNotes.columnsOf(markers + opening[1]);
         const kind = `${fence}:${quoted.count}:${contentColumn}`;
         if (unclosedFences.has(kind)) {
-            return undefined;
+            return afterOpeningFence;
         }
-        const closing = new RegExp(`^[ \\t]{0,${contentColumn + 3}}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        const closing = new RegExp(`^([ \\t]*)${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
         let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
             const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
-            if (inside.count < quoted.count || ReleaseNotes.leavesListItem(notes, inside.end, lineEnd, contentColumn)) {
+            if (inside.count < quoted.count) {
                 return line;
             }
-            if (closing.test(ReleaseNotes.lineAt(notes, inside.end, lineEnd))) {
+            // A closing fence is recognized before the list item is checked, so a closer written further left than
+            // its opening - common in hand-written list items - still closes the block rather than opening another.
+            const text = ReleaseNotes.lineAt(notes, inside.end, lineEnd);
+            const closed = closing.exec(text);
+            if (closed && ReleaseNotes.columnsOf(closed[1]) <= contentColumn + 3) {
                 return ReleaseNotes.startOfNextLine(notes, lineEnd);
+            }
+            if (ReleaseNotes.leavesListItem(text, contentColumn)) {
+                return line;
             }
             line = ReleaseNotes.startOfNextLine(notes, lineEnd);
         }
         unclosedFences.add(kind);
-        return undefined;
+        return afterOpeningFence;
     }
     /**
      * Whether a line leaves the list item holding a fence - a line that is not blank and is indented less than the
      * item's content.
      */
-    static leavesListItem(notes, lineStart, lineEnd, contentColumn) {
-        if (contentColumn === 0) {
+    static leavesListItem(line, contentColumn) {
+        if (contentColumn === 0 || line.trim() === '') {
             return false;
         }
-        const line = ReleaseNotes.lineAt(notes, lineStart, lineEnd);
-        const indentation = line.length - line.trimStart().length;
-        return line.trim() !== '' && indentation < contentColumn;
+        return ReleaseNotes.columnsOf(line.slice(0, line.length - line.trimStart().length)) < contentColumn;
+    }
+    /**
+     * How many columns text at the start of a line takes up, with a tab advancing to the next multiple of four as
+     * Markdown counts it.
+     */
+    static columnsOf(text) {
+        let columns = 0;
+        for (const character of text) {
+            columns = character === '\t' ? columns + 4 - (columns % 4) : columns + 1;
+        }
+        return columns;
     }
     /**
      * The end of an inline code span opening at an index - after the closing run of backticks of the same length.
