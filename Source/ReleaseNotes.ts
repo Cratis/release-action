@@ -18,14 +18,14 @@ export class ReleaseNotes {
     private static readonly commentEnd = '-->';
 
     // A list item can open a fence on its own line: `1. ```html`. The marker's width counts as indentation.
-    private static readonly listMarker = /^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])[ ]+/;
+    private static readonly listMarker = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
 
     // A backtick fence's info string cannot hold a backtick: a line starting ```js``` is an inline code span.
     private static readonly fence = /^([ ]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
 
     // A code span is inline, so it never runs past the end of its block: a blank line, or a line that starts
-    // another block - a list item, a heading, a deeper quote, a fence or a thematic break.
-    private static readonly startOfAnotherBlock = /^[ \t]*(?:$|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)/;
+    // another block - a list item, a heading, a deeper quote, a fence, a thematic break or an HTML comment.
+    private static readonly startOfAnotherBlock = /^[ \t]*(?:$|<!--|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)/;
 
     /**
      * Removes the closed HTML comments from release notes, leaving fenced and inline code untouched. A comment
@@ -121,8 +121,8 @@ export class ReleaseNotes {
     /**
      * The end of a fenced code block opening at the start of a line, or undefined when no fence opens there. The
      * block closes at a line holding only a fence of the same character that is at least as long, indented at most
-     * three spaces more than the opening one, or where the quote holding it ends. A block that is never closed runs
-     * to the end of the notes, as Markdown renders it.
+     * three spaces more than the opening one, or where the quote or list item holding it ends. A block that is never
+     * closed runs to the end of the notes, as Markdown renders it.
      */
     private static endOfFencedBlock(notes: string, lineStart: number): number | undefined {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
@@ -148,7 +148,7 @@ export class ReleaseNotes {
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
             const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
-            if (inside.count < quoted.count) {
+            if (inside.count < quoted.count || ReleaseNotes.leavesListItem(notes, inside.end, lineEnd, markerWidth)) {
                 return line;
             }
             if (closing.test(ReleaseNotes.lineAt(notes, inside.end, lineEnd))) {
@@ -158,6 +158,20 @@ export class ReleaseNotes {
         }
 
         return notes.length;
+    }
+
+    /**
+     * Whether a line leaves the list item whose marker opened a fence - a line that is not blank and is indented
+     * less than the item's content.
+     */
+    private static leavesListItem(notes: string, lineStart: number, lineEnd: number, markerWidth: number): boolean {
+        if (markerWidth === 0) {
+            return false;
+        }
+
+        const line = ReleaseNotes.lineAt(notes, lineStart, lineEnd);
+        const indentation = line.length - line.trimStart().length;
+        return line.trim() !== '' && indentation < markerWidth;
     }
 
     /**

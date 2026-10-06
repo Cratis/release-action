@@ -161,6 +161,21 @@ describe('when removing comments from release notes', () => {
         (performance.now() - started).should.be.lessThan(500);
     });
 
+    it('should leave a comment shown inside a fenced block a nested list item opens', () => {
+        const notes = '- Parent\n    - ```html\n      <!-- example -->\n      ```\n';
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+    });
+
+    it('should remove a comment after the list item holding an unclosed fence ends', () => {
+        ReleaseNotes.withoutComments('- ```html\n  example\n- Fixed (#123)\n<!-- guidance (#777) -->\n')
+            .should.equal('- ```html\n  example\n- Fixed (#123)\n');
+    });
+
+    // A comment on its own line starts a block of its own, so backticks on either side of it are not a code span.
+    it('should remove a comment between lone backticks on the lines around it', () => {
+        ReleaseNotes.withoutComments('Text `\n<!-- guidance (#777) -->\ntext `\n').should.equal('Text `\ntext `\n');
+    });
+
     it('should give nothing for empty notes', () => {
         ReleaseNotes.withoutComments('').should.equal('');
     });

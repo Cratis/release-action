@@ -18,6 +18,8 @@ type ExistingTag = {
     name: string;
 };
 
+const commitSha = /^[0-9a-f]{40}$/i;
+
 // A fresh instance every time - `SemVer.inc()` mutates in place, so callers must never share one.
 const noReleasesYet = () => new SemVer('0.0.0');
 
@@ -66,11 +68,33 @@ export class Releases implements IReleases {
 
         try {
             const existing = await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
-            const target = existing.data.target_commitish;
+            const target = await this.commitOf(tag, existing.data.target_commitish);
             this._logger.info(`A release already exists for tag '${tag}', pointing at '${target}'.`);
             return target;
         } catch (ex) {
             if ((ex as { status?: number }).status === 404) return undefined;
+            throw ex;
+        }
+    }
+
+    /**
+     * The commit a release points at. This action always creates releases with a commit, but a release created by
+     * hand records the branch it was cut from - `main` - and only its tag says which commit that was.
+     */
+    private async commitOf(tag: string, targetCommitish: string): Promise<string> {
+        if (commitSha.test(targetCommitish)) return targetCommitish;
+
+        const { owner, repo } = this._context.repo;
+        try {
+            const ref = await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` });
+            if (ref.data.object.type !== 'tag') return ref.data.object.sha;
+
+            // An annotated tag points at a tag object, which in turn points at the commit.
+            const annotated = await this._octokit.git.getTag({ owner, repo, tag_sha: ref.data.object.sha });
+            return annotated.data.object.sha;
+        } catch (ex) {
+            // A draft release has no tag yet - all there is to compare is what the release itself records.
+            if ((ex as { status?: number }).status === 404) return targetCommitish;
             throw ex;
         }
     }
