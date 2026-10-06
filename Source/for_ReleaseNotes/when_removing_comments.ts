@@ -60,9 +60,19 @@ describe('when removing comments from release notes', () => {
         ReleaseNotes.withoutComments(notes).should.equal(notes);
     });
 
-    it('should leave a comment inside a fenced block that is never closed', () => {
-        const notes = '```\n<!-- guidance -->\n';
-        ReleaseNotes.withoutComments(notes).should.equal(notes);
+    // A stray fence must not keep every comment after it - and the issues they name - in the published notes.
+    it('should remove a comment after a fence that is never closed', () => {
+        ReleaseNotes.withoutComments('```\n<!-- guidance (#777) -->\n- One\n').should.equal('```\n- One\n');
+    });
+
+    it('should remove a comment after the list item holding an unclosed fence on a continuation line ends', () => {
+        ReleaseNotes.withoutComments('- Example:\n\n  ```html\n  example\n- Fixed (#123)\n<!-- guidance (#777) -->\n')
+            .should.equal('- Example:\n\n  ```html\n  example\n- Fixed (#123)\n');
+    });
+
+    it('should leave a comment shown inside a fenced block in a tab indented list item', () => {
+        ReleaseNotes.withoutComments('- Parent\n\t- ```html\n\t  <!-- ex -->\n\t  ```\n\t  More <!-- note (#7) -->\n- Next (#8)\n')
+            .should.equal('- Parent\n\t- ```html\n\t  <!-- ex -->\n\t  ```\n\t  More \n- Next (#8)\n');
     });
 
     it('should remove a comment after a fenced block has closed', () => {
@@ -174,6 +184,13 @@ describe('when removing comments from release notes', () => {
     // A comment on its own line starts a block of its own, so backticks on either side of it are not a code span.
     it('should remove a comment between lone backticks on the lines around it', () => {
         ReleaseNotes.withoutComments('Text `\n<!-- guidance (#777) -->\ntext `\n').should.equal('Text `\ntext `\n');
+    });
+
+    it('should read notes full of fences that are never closed quickly', () => {
+        const notes = '```x\n'.repeat(12000);
+        const started = performance.now();
+        ReleaseNotes.withoutComments(notes).should.equal(notes);
+        (performance.now() - started).should.be.lessThan(500);
     });
 
     it('should give nothing for empty notes', () => {

@@ -77,7 +77,8 @@ meaningful body rather than an empty one.
 HTML comments (`<!-- ... -->`) are removed from the notes before the release is created. Pull request templates
 carry their guidance in a comment, and authors often leave it in place; the release page hides it, but the
 published body would keep it for every API consumer. Comments shown inside fenced or inline code are left alone,
-and a comment that is never closed is kept as written. Notes holding nothing but a comment count as no notes, so
+and a comment that is never closed is kept as written. A fence that is never closed does not protect what follows
+it: the comments after a stray fence are still removed. Notes holding nothing but a comment count as no notes, so
 GitHub generates them.
 
 Every run also writes a short decision table to the job summary, so you can see at a glance what the action

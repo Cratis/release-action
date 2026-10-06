@@ -11,6 +11,10 @@
  * syntax, not a comment, and removing it would change what the notes document. The notes are read from left to
  * right the way Markdown reads them, so whichever starts first wins: backticks inside a comment are part of the
  * comment, and a comment marker inside code is part of the code.
+ *
+ * Where Markdown is ambiguous or broken - an unclosed fence, say - the reading leans towards removing comments. A
+ * comment wrongly kept publishes hidden guidance and can close an issue it names; one wrongly removed only shortens
+ * an example in a block that was malformed already.
  */
 export class ReleaseNotes {
 
@@ -21,7 +25,7 @@ export class ReleaseNotes {
     private static readonly listMarker = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
 
     // A backtick fence's info string cannot hold a backtick: a line starting ```js``` is an inline code span.
-    private static readonly fence = /^([ ]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
+    private static readonly fence = /^([ \t]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
 
     // A code span is inline, so it never runs past the end of its block: a blank line, or a line that starts
     // another block - a list item, a heading, a deeper quote, a fence, a thematic break or an HTML comment.
@@ -50,6 +54,10 @@ export class ReleaseNotes {
         // searching back from every code span would make a long line full of them slow to read.
         let lineStart = 0;
         let lineScannedTo = 0;
+        // A fence that found no closing line before the end of the notes will not find one from further down either;
+        // remembering that keeps notes full of stray fences from being read again and again to the end.
+        const unclosedFences = new Set<string>();
+
         const lineStartOf = (position: number): number => {
             for (; lineScannedTo < position; lineScannedTo++) {
                 if (notes[lineScannedTo] === '\n') lineStart = lineScannedTo + 1;
@@ -58,7 +66,7 @@ export class ReleaseNotes {
         };
 
         while (index < notes.length) {
-            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf);
+            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences);
             if (end > index) {
                 published += notes.slice(index, end);
                 index = end;
@@ -88,10 +96,10 @@ export class ReleaseNotes {
      * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
      * must be kept verbatim starts there.
      */
-    private static endOfCodeAt(notes: string, index: number, lineStartOf: (position: number) => number): number {
+    private static endOfCodeAt(notes: string, index: number, lineStartOf: (position: number) => number, unclosedFences: Set<string>): number {
         const atLineStart = index === 0 || notes[index - 1] === '\n';
         if (atLineStart) {
-            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index);
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences);
             if (fenceEnd !== undefined) {
                 return fenceEnd;
             }
@@ -132,10 +140,13 @@ export class ReleaseNotes {
     /**
      * The end of a fenced code block opening at the start of a line, or undefined when no fence opens there. The
      * block closes at a line holding only a fence of the same character that is at least as long, indented at most
-     * three spaces more than the opening one, or where the quote or list item holding it ends. A block that is never
-     * closed runs to the end of the notes, as Markdown renders it.
+     * three spaces more than the opening one, or where the quote or list item holding it ends.
+     *
+     * A fence that is never closed is not treated as code. Markdown would render the rest of the notes as code, but
+     * then every comment after a stray fence would be published - and an issue it names closed - so an unclosed
+     * fence is read as plain text instead. The worst that costs is a comment shown inside that broken block.
      */
-    private static endOfFencedBlock(notes: string, lineStart: number): number | undefined {
+    private static endOfFencedBlock(notes: string, lineStart: number, unclosedFences: Set<string>): number | undefined {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
         const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
 
@@ -152,14 +163,21 @@ export class ReleaseNotes {
         }
 
         const fence = opening[2] ?? opening[3];
-        const indentation = markerWidth + opening[1].length + 3;
-        const closing = new RegExp(`^[ ]{0,${indentation}}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        // An indented fence sits in a list item - opened on the marker's line or on a continuation line of the
+        // item - and the item's content starts where the fence does.
+        const contentColumn = markerWidth + opening[1].length;
+
+        const kind = `${fence}:${quoted.count}:${contentColumn}`;
+        if (unclosedFences.has(kind)) {
+            return undefined;
+        }
+        const closing = new RegExp(`^[ \\t]{0,${contentColumn + 3}}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
 
         let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
             const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
-            if (inside.count < quoted.count || ReleaseNotes.leavesListItem(notes, inside.end, lineEnd, markerWidth)) {
+            if (inside.count < quoted.count || ReleaseNotes.leavesListItem(notes, inside.end, lineEnd, contentColumn)) {
                 return line;
             }
             if (closing.test(ReleaseNotes.lineAt(notes, inside.end, lineEnd))) {
@@ -168,21 +186,22 @@ export class ReleaseNotes {
             line = ReleaseNotes.startOfNextLine(notes, lineEnd);
         }
 
-        return notes.length;
+        unclosedFences.add(kind);
+        return undefined;
     }
 
     /**
-     * Whether a line leaves the list item whose marker opened a fence - a line that is not blank and is indented
-     * less than the item's content.
+     * Whether a line leaves the list item holding a fence - a line that is not blank and is indented less than the
+     * item's content.
      */
-    private static leavesListItem(notes: string, lineStart: number, lineEnd: number, markerWidth: number): boolean {
-        if (markerWidth === 0) {
+    private static leavesListItem(notes: string, lineStart: number, lineEnd: number, contentColumn: number): boolean {
+        if (contentColumn === 0) {
             return false;
         }
 
         const line = ReleaseNotes.lineAt(notes, lineStart, lineEnd);
         const indentation = line.length - line.trimStart().length;
-        return line.trim() !== '' && indentation < markerWidth;
+        return line.trim() !== '' && indentation < contentColumn;
     }
 
     /**
