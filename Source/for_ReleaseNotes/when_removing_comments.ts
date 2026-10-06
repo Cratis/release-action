@@ -203,6 +203,16 @@ describe('when removing comments from release notes', () => {
             .should.equal('- Fixed thing:\n  ```\n  foo\n\n```\nbar\n```\n\n\n```\nbaz\n```\n');
     });
 
+    it('should remove a hidden bullet after an out-dented fence when a later block shows a longer comment', () => {
+        ReleaseNotes.withoutComments('- Item:\n  ```\n  x\n```\n<!-- - Fixed X (#9) -->\n```\n<!-- example comment that is long enough to win -->\n```\n')
+            .should.not.contain('(#9)');
+    });
+
+    it('should remove a hidden bullet between blocks after a list item block that is never closed when a later block shows a longer comment', () => {
+        ReleaseNotes.withoutComments('- Fixed thing:\n  ```\n  foo\n\n```\nbar\n```\n<!-- - Fixed (#5) -->\n```\n<!-- a much longer example comment shown in a block -->\n```\n')
+            .should.not.contain('(#5)');
+    });
+
     it('should measure tab indentation in columns', () => {
         ReleaseNotes.withoutComments('- Parent\n    - Child:\n\t\t```html\n\t\texample\n    <!-- guidance (#777) -->\n\t\t```\n')
             .should.equal('- Parent\n    - Child:\n\t\t```html\n\t\texample\n\t\t```\n');

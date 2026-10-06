@@ -39657,13 +39657,27 @@ class ReleaseNotes {
         }
         // A fence opened inside a list item and followed by a bare fence further left reads two ways: the bare fence
         // closes the item's block, or the item ends there and the bare fence opens a new block. Markdown renders the
-        // second, but authors often mean the first. Both readings are taken and the one that removes more wins, so
-        // the ambiguity never keeps a hidden comment in the published notes.
-        const closedByOutdentedFence = ReleaseNotes.removeComments(notes, true);
-        const endedWithListItem = ReleaseNotes.removeComments(notes, false);
-        return endedWithListItem.length < closedByOutdentedFence.length ? endedWithListItem : closedByOutdentedFence;
+        // second, but authors often mean the first. Both readings are taken and everything either of them removes is
+        // removed, so the ambiguity never keeps a comment that one of the readings sees in the published notes.
+        const removals = [
+            ...ReleaseNotes.removalsIn(notes, true),
+            ...ReleaseNotes.removalsIn(notes, false)
+        ].sort((left, right) => left[0] - right[0]);
+        let published = '';
+        let kept = 0;
+        for (const [start, end] of removals) {
+            if (start > kept) {
+                published += notes.slice(kept, start);
+            }
+            kept = Math.max(kept, end);
+        }
+        return published + notes.slice(kept);
     }
-    static removeComments(notes, outdentedFenceCloses) {
+    /**
+     * The ranges of the notes - start inclusive, end exclusive - one reading of them removes.
+     */
+    static removalsIn(notes, outdentedFenceCloses) {
+        const removals = [];
         let published = '';
         let index = 0;
         // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
@@ -39697,6 +39711,7 @@ class ReleaseNotes {
                 }
                 else {
                     const removed = ReleaseNotes.removeComment(notes, published, close + ReleaseNotes.commentEnd.length);
+                    removals.push([removed.withItsLines ? lineStartOf(index) : index, removed.next]);
                     published = removed.published;
                     index = removed.next;
                     continue;
@@ -39705,7 +39720,7 @@ class ReleaseNotes {
             published += notes[index];
             index++;
         }
-        return published;
+        return removals;
     }
     /**
      * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
@@ -39738,11 +39753,12 @@ class ReleaseNotes {
         const lineEnd = newline === -1 ? notes.length : newline;
         const aloneOnItsLines = published.slice(lineStart).trim() === '' && notes.slice(end, lineEnd).trim() === '';
         if (!aloneOnItsLines) {
-            return { published, next: end };
+            return { published, next: end, withItsLines: false };
         }
         return {
             published: published.slice(0, lineStart),
-            next: newline === -1 ? notes.length : newline + 1
+            next: newline === -1 ? notes.length : newline + 1,
+            withItsLines: true
         };
     }
     /**
