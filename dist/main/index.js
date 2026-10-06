@@ -39908,7 +39908,31 @@ class ReleaseDecisions {
     }
 }
 
+;// CONCATENATED MODULE: ./Source/VersionClaimedByAnotherCommit.ts
+/**
+ * The error raised when the release this run was about to create already exists for a different commit.
+ *
+ * Two runs that start close together both read the same latest release and both work out the same next version.
+ * Whichever creates its release first owns that version; the other has lost the race. Its artifacts would carry a
+ * version whose release points at someone else's commit and notes, so it must fail rather than report success.
+ * Re-running it works the version out again from the now-higher latest release.
+ */
+class VersionClaimedByAnotherCommit extends Error {
+    tag;
+    claimedBy;
+    targetCommitish;
+    constructor(tag, claimedBy, targetCommitish) {
+        super(`The release '${tag}' already exists for commit '${claimedBy}', not for '${targetCommitish}' - a concurrent run claimed this version first. ` +
+            `Nothing may be published as '${tag}' from this commit; re-run the workflow to release it under the next version.`);
+        this.tag = tag;
+        this.claimedBy = claimedBy;
+        this.targetCommitish = targetCommitish;
+        this.name = 'VersionClaimedByAnotherCommit';
+    }
+}
+
 ;// CONCATENATED MODULE: ./Source/Releases.ts
+
 
 // A fresh instance every time - `SemVer.inc()` mutates in place, so callers must never share one.
 const noReleasesYet = () => new semver.SemVer('0.0.0');
@@ -39951,16 +39975,17 @@ class Releases {
             return noReleasesYet();
         }
     }
-    async existsForTag(tag) {
+    async targetOf(tag) {
         const { owner, repo } = this._context.repo;
         try {
-            await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
-            this._logger.info(`A release already exists for tag '${tag}'.`);
-            return true;
+            const existing = await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
+            const target = existing.data.target_commitish;
+            this._logger.info(`A release already exists for tag '${tag}', pointing at '${target}'.`);
+            return target;
         }
         catch (ex) {
             if (ex.status === 404)
-                return false;
+                return undefined;
             throw ex;
         }
     }
@@ -39987,15 +40012,26 @@ class Releases {
             });
         }
         catch (ex) {
-            // GitHub answers 422 when a release for the tag already exists. The pre-flight checks catch the
-            // common case; this closes the race where a concurrent run created it in between, so a re-run or
-            // a parallel job never fails on an already-published release.
-            if (ex.status === 422) {
-                this._logger.warn(`A release for '${release.tag}' already exists - skipping.`);
-                return;
-            }
-            throw ex;
+            if (ex.status !== 422)
+                throw ex;
+            await this.reconcileWithExisting(release, ex);
         }
+    }
+    /**
+     * GitHub answers 422 when a release for the tag already exists - which the pre-flight checks only miss when a
+     * concurrent run created it in between. The answer alone cannot say whose release that is: the same commit's
+     * means a parallel job already did this work, while another commit's means this run lost the version and must
+     * not carry on as though it had won. Reading the release back tells the two apart.
+     */
+    async reconcileWithExisting(release, rejection) {
+        const existingTarget = await this.targetOf(release.tag);
+        // No release for the tag after all, so the 422 was about something else in the request.
+        if (existingTarget === undefined)
+            throw rejection;
+        if (existingTarget !== release.targetCommitish) {
+            throw new VersionClaimedByAnotherCommit(release.tag, existingTarget, release.targetCommitish);
+        }
+        this._logger.warn(`A release for '${release.tag}' already exists for this commit - skipping.`);
     }
     // Drafts have no tag in the repository yet, and this action never publishes prereleases, so neither can be
     // the basis for the next release version.

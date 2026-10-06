@@ -39615,6 +39615,160 @@ const dist_src_Octokit = Octokit.plugin(requestLog, legacyRestEndpointMethods, p
 );
 
 
+;// CONCATENATED MODULE: ./Source/ReleaseNotes.ts
+/**
+ * Turns the notes a release is cut with - a pull request description, or the notes a manual run was given - into
+ * the body that is published.
+ *
+ * Pull request templates carry their guidance in HTML comments, and authors often leave them in place. The release
+ * page hides a comment, but the published body keeps it, so every consumer of the raw body - feeds, aggregated
+ * release notes, anything reading the API - sees guidance that was never meant to be published. Closed comments
+ * are therefore removed.
+ *
+ * Code is left exactly as written. A fenced block or an inline span showing `<!-- ... -->` is an example of the
+ * syntax, not a comment, and removing it would change what the notes document. The notes are read from left to
+ * right the way Markdown reads them, so whichever starts first wins: backticks inside a comment are part of the
+ * comment, and a comment marker inside code is part of the code.
+ */
+class ReleaseNotes {
+    static commentStart = '<!--';
+    static commentEnd = '-->';
+    static fenceOpening = /^[ \t]*(`{3,}|~{3,})/;
+    static blankLine = /\n[ \t]*\n/g;
+    /**
+     * Removes the closed HTML comments from release notes, leaving fenced and inline code untouched. A comment
+     * that is alone on its lines takes those lines with it, so a template comment leaves no blank gap behind. A
+     * comment that is never closed is left alone - it is not clear where it was meant to end.
+     * @param notes The release notes.
+     * @returns The notes without their comments.
+     */
+    static withoutComments(notes) {
+        if (!notes) {
+            return '';
+        }
+        let published = '';
+        let index = 0;
+        while (index < notes.length) {
+            const end = ReleaseNotes.endOfCodeAt(notes, index);
+            if (end > index) {
+                published += notes.slice(index, end);
+                index = end;
+                continue;
+            }
+            if (notes.startsWith(ReleaseNotes.commentStart, index)) {
+                const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
+                if (close !== -1) {
+                    const removed = ReleaseNotes.removeComment(notes, published, close + ReleaseNotes.commentEnd.length);
+                    published = removed.published;
+                    index = removed.next;
+                    continue;
+                }
+            }
+            published += notes[index];
+            index++;
+        }
+        return published;
+    }
+    /**
+     * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
+     * must be kept verbatim starts there.
+     */
+    static endOfCodeAt(notes, index) {
+        const atLineStart = index === 0 || notes[index - 1] === '\n';
+        if (atLineStart) {
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index);
+            if (fenceEnd !== undefined) {
+                return fenceEnd;
+            }
+        }
+        // An escaped character is literal - `\<!--` is not a comment and `` \` `` does not start a code span.
+        if (notes[index] === '\\' && index + 1 < notes.length) {
+            return index + 2;
+        }
+        if (notes[index] === '`') {
+            return ReleaseNotes.endOfCodeSpan(notes, index);
+        }
+        return index;
+    }
+    /**
+     * Drops the comment ending at an index from the notes. When nothing but whitespace shares its first and last lines, the whole of
+     * those lines goes with it.
+     */
+    static removeComment(notes, published, end) {
+        const lineStart = published.lastIndexOf('\n') + 1;
+        const newline = notes.indexOf('\n', end);
+        const lineEnd = newline === -1 ? notes.length : newline;
+        const aloneOnItsLines = published.slice(lineStart).trim() === '' && notes.slice(end, lineEnd).trim() === '';
+        if (!aloneOnItsLines) {
+            return { published, next: end };
+        }
+        return {
+            published: published.slice(0, lineStart),
+            next: newline === -1 ? notes.length : newline + 1
+        };
+    }
+    /**
+     * The end of a fenced code block opening at the start of a line, or undefined when no fence opens there. The
+     * block closes at a line holding only a fence of the same character that is at least as long; a block that is
+     * never closed runs to the end of the notes, as Markdown renders it.
+     */
+    static endOfFencedBlock(notes, lineStart) {
+        const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
+        const opening = ReleaseNotes.fenceOpening.exec(notes.slice(lineStart, firstLineEnd));
+        if (!opening) {
+            return undefined;
+        }
+        const fence = opening[1];
+        const closing = new RegExp(`^[ \\t]*${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
+        while (line < notes.length) {
+            const lineEnd = ReleaseNotes.endOfLine(notes, line);
+            if (closing.test(notes.slice(line, lineEnd).replace(/\r$/, ''))) {
+                return ReleaseNotes.startOfNextLine(notes, lineEnd);
+            }
+            line = ReleaseNotes.startOfNextLine(notes, lineEnd);
+        }
+        return notes.length;
+    }
+    /**
+     * The end of an inline code span opening at an index - after the closing run of backticks of the same length.
+     * A run that is never closed within its paragraph is literal backticks, and ends right after itself.
+     */
+    static endOfCodeSpan(notes, start) {
+        const length = ReleaseNotes.backtickRunAt(notes, start);
+        const afterOpening = start + length;
+        ReleaseNotes.blankLine.lastIndex = afterOpening;
+        const paragraphEnd = ReleaseNotes.blankLine.exec(notes)?.index ?? notes.length;
+        let index = afterOpening;
+        while (index < paragraphEnd) {
+            if (notes[index] !== '`') {
+                index++;
+                continue;
+            }
+            const run = ReleaseNotes.backtickRunAt(notes, index);
+            if (run === length) {
+                return index + run;
+            }
+            index += run;
+        }
+        return afterOpening;
+    }
+    static backtickRunAt(notes, index) {
+        let end = index;
+        while (notes[end] === '`') {
+            end++;
+        }
+        return end - index;
+    }
+    static endOfLine(notes, index) {
+        const newline = notes.indexOf('\n', index);
+        return newline === -1 ? notes.length : newline;
+    }
+    static startOfNextLine(notes, lineEnd) {
+        return lineEnd < notes.length ? lineEnd + 1 : notes.length;
+    }
+}
+
 ;// CONCATENATED MODULE: ./Source/ResolvedIssues.ts
 /**
  * The issue numbers a set of release notes says the release resolves.
@@ -39664,7 +39818,32 @@ class ResolvedIssues {
     }
 }
 
+;// CONCATENATED MODULE: ./Source/VersionClaimedByAnotherCommit.ts
+/**
+ * The error raised when the release this run was about to create already exists for a different commit.
+ *
+ * Two runs that start close together both read the same latest release and both work out the same next version.
+ * Whichever creates its release first owns that version; the other has lost the race. Its artifacts would carry a
+ * version whose release points at someone else's commit and notes, so it must fail rather than report success.
+ * Re-running it works the version out again from the now-higher latest release.
+ */
+class VersionClaimedByAnotherCommit extends Error {
+    tag;
+    claimedBy;
+    targetCommitish;
+    constructor(tag, claimedBy, targetCommitish) {
+        super(`The release '${tag}' already exists for commit '${claimedBy}', not for '${targetCommitish}' - a concurrent run claimed this version first. ` +
+            `Nothing may be published as '${tag}' from this commit; re-run the workflow to release it under the next version.`);
+        this.tag = tag;
+        this.claimedBy = claimedBy;
+        this.targetCommitish = targetCommitish;
+        this.name = 'VersionClaimedByAnotherCommit';
+    }
+}
+
 ;// CONCATENATED MODULE: ./Source/HandleRelease.ts
+
+
 
 /**
  * The post step of the action. Creates the GitHub release for the decision the main step recorded.
@@ -39702,8 +39881,15 @@ class HandleRelease {
     async createRelease(decision) {
         const tag = decision.tag;
         const targetCommitish = decision.targetCommitish || this._context.sha;
-        if (await this._releases.existsForTag(tag)) {
-            this._logger.warn(`A release for '${tag}' already exists - skipping.`);
+        // The version can already be taken: by this commit when a parallel job got there first, or by another
+        // commit when a concurrent run worked out the same version and created its release first. Only the first
+        // is safe to skip - the second has to fail the run, or it goes on as though it had released.
+        const existingTarget = await this._releases.targetOf(tag);
+        if (existingTarget !== undefined) {
+            if (existingTarget !== targetCommitish) {
+                throw new VersionClaimedByAnotherCommit(tag, existingTarget, targetCommitish);
+            }
+            this._logger.warn(`A release for '${tag}' already exists for this commit - skipping.`);
             return;
         }
         if (await this._releases.existsForSha(targetCommitish)) {
@@ -39711,18 +39897,20 @@ class HandleRelease {
             return;
         }
         this._logger.info(`Creating release '${tag}' for commit '${targetCommitish}'.`);
+        const notes = ReleaseNotes.withoutComments(decision.releaseNotes);
         await this._releases.create({
             tag,
             name: `Release ${tag}`,
-            notes: decision.releaseNotes,
+            notes,
             // With no notes of our own, let GitHub compose them from the merged pull requests rather than
-            // cutting a release with an empty body.
-            generateNotes: decision.releaseNotes.trim() === '',
+            // cutting a release with an empty body. A description holding nothing but the template's comment
+            // counts as no notes.
+            generateNotes: notes.trim() === '',
             isPrerelease: decision.isPrerelease,
             targetCommitish
         });
         this._logger.info('GitHub release created.');
-        await this.closeResolvedIssues(decision);
+        await this.closeResolvedIssues(tag, notes);
     }
     /**
      * Closes the issues the release notes say this release resolves.
@@ -39730,19 +39918,22 @@ class HandleRelease {
      * Done after the release exists, and never allowed to fail the step. The release is the thing that had to
      * happen; an issue left open because the API refused is a tidiness problem, while a step that fails after
      * publishing makes the run look as though nothing shipped.
+     *
+     * Read from the published notes, so an issue named only inside a comment the release does not show is not
+     * closed by it.
      */
-    async closeResolvedIssues(decision) {
+    async closeResolvedIssues(tag, notes) {
         if (!this._closeResolvedIssues) {
             return;
         }
-        const resolved = ResolvedIssues.in(decision.releaseNotes);
+        const resolved = ResolvedIssues.in(notes);
         if (resolved.length === 0) {
             return;
         }
         this._logger.info(`The release notes name ${resolved.length} issue(s) as resolved: ${resolved.map(_ => `#${_}`).join(', ')}.`);
         for (const issue of resolved) {
             try {
-                const closed = await this._issues.close(issue, `Closed by release **${decision.tag}**.`);
+                const closed = await this._issues.close(issue, `Closed by release **${tag}**.`);
                 if (closed) {
                     this._logger.info(`Closed #${issue}.`);
                 }
@@ -39809,6 +40000,7 @@ var semver = __nccwpck_require__(2088);
 var semver_default = /*#__PURE__*/__nccwpck_require__.n(semver);
 ;// CONCATENATED MODULE: ./Source/Releases.ts
 
+
 // A fresh instance every time - `SemVer.inc()` mutates in place, so callers must never share one.
 const noReleasesYet = () => new semver.SemVer('0.0.0');
 class Releases {
@@ -39850,16 +40042,17 @@ class Releases {
             return noReleasesYet();
         }
     }
-    async existsForTag(tag) {
+    async targetOf(tag) {
         const { owner, repo } = this._context.repo;
         try {
-            await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
-            this._logger.info(`A release already exists for tag '${tag}'.`);
-            return true;
+            const existing = await this._octokit.repos.getReleaseByTag({ owner, repo, tag });
+            const target = existing.data.target_commitish;
+            this._logger.info(`A release already exists for tag '${tag}', pointing at '${target}'.`);
+            return target;
         }
         catch (ex) {
             if (ex.status === 404)
-                return false;
+                return undefined;
             throw ex;
         }
     }
@@ -39886,15 +40079,26 @@ class Releases {
             });
         }
         catch (ex) {
-            // GitHub answers 422 when a release for the tag already exists. The pre-flight checks catch the
-            // common case; this closes the race where a concurrent run created it in between, so a re-run or
-            // a parallel job never fails on an already-published release.
-            if (ex.status === 422) {
-                this._logger.warn(`A release for '${release.tag}' already exists - skipping.`);
-                return;
-            }
-            throw ex;
+            if (ex.status !== 422)
+                throw ex;
+            await this.reconcileWithExisting(release, ex);
         }
+    }
+    /**
+     * GitHub answers 422 when a release for the tag already exists - which the pre-flight checks only miss when a
+     * concurrent run created it in between. The answer alone cannot say whose release that is: the same commit's
+     * means a parallel job already did this work, while another commit's means this run lost the version and must
+     * not carry on as though it had won. Reading the release back tells the two apart.
+     */
+    async reconcileWithExisting(release, rejection) {
+        const existingTarget = await this.targetOf(release.tag);
+        // No release for the tag after all, so the 422 was about something else in the request.
+        if (existingTarget === undefined)
+            throw rejection;
+        if (existingTarget !== release.targetCommitish) {
+            throw new VersionClaimedByAnotherCommit(release.tag, existingTarget, release.targetCommitish);
+        }
+        this._logger.warn(`A release for '${release.tag}' already exists for this commit - skipping.`);
     }
     // Drafts have no tag in the repository yet, and this action never publishes prereleases, so neither can be
     // the basis for the next release version.
