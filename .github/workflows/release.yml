@@ -19,9 +19,11 @@ permissions:
   # Lets the action close the issues the release notes say the release resolves.
   issues: write
 
+# Keep every pending release in order: release-action releases one merged pull request per run, and the
+# default concurrency keeps only one pending run and cancels the others (Cratis/Workflows#162).
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  queue: max
 
 jobs:
   release:
