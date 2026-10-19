@@ -26,7 +26,8 @@ export interface IReleases {
 
     /**
      * Creates the release. When a release for the tag turns out to exist already, it is left alone if it points
-     * at the same commit, and `VersionClaimedByAnotherCommit` is thrown if it points at another.
+     * at the same commit, and `VersionClaimedByAnotherCommit` is thrown if it points at another. A 403 caused by the commit's workflows differing from the default branch's is thrown
+     * as `WorkflowsDifferFromDefaultBranch`; any other 403 keeps its original error.
      */
     create(release: Release): Promise<void>;
 }

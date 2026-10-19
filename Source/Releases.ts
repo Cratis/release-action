@@ -6,6 +6,7 @@ import { ILogger } from './ILogger';
 import { IReleases } from './IReleases';
 import { Release } from './Release';
 import { VersionClaimedByAnotherCommit } from './VersionClaimedByAnotherCommit';
+import { WorkflowsDifferFromDefaultBranch } from './WorkflowsDifferFromDefaultBranch';
 
 type ExistingRelease = {
     tag_name: string;
@@ -124,8 +125,53 @@ export class Releases implements IReleases {
                 target_commitish: release.targetCommitish
             });
         } catch (ex) {
-            if ((ex as { status?: number }).status !== 422) throw ex;
+            const status = (ex as { status?: number }).status;
+            if (status === 403) await this.explainForbidden(release, ex);
+            if (status !== 422) throw ex;
             await this.reconcileWithExisting(release, ex);
+        }
+    }
+
+    /**
+     * Always throws. A 403 on creating the release is most often the token being unable to create a tag on a
+     * commit whose workflows differ from the default branch's - which only a comparison can tell from any other
+     * refusal. Any other 403, and a comparison that itself fails, keep the original error.
+     */
+    private async explainForbidden(release: Release, rejection: unknown): Promise<never> {
+        let defaultBranch: string;
+        let differ: boolean;
+
+        try {
+            const { owner, repo } = this._context.repo;
+            defaultBranch = (await this._octokit.repos.get({ owner, repo })).data.default_branch;
+            const [atCommit, atDefaultBranch] = await Promise.all([
+                this.workflowsTreeAt(release.targetCommitish),
+                this.workflowsTreeAt(defaultBranch)
+            ]);
+            differ = atCommit !== atDefaultBranch;
+        } catch (ex) {
+            this._logger.warn('Could not compare the workflows of the commit with the default branch.');
+            this._logger.warn(ex);
+            throw rejection;
+        }
+
+        if (differ) throw new WorkflowsDifferFromDefaultBranch(release.targetCommitish, defaultBranch, rejection);
+        throw rejection;
+    }
+
+    /**
+     * The tree SHA of `.github/workflows` at a ref, or undefined when the ref has no such directory.
+     */
+    private async workflowsTreeAt(ref: string): Promise<string | undefined> {
+        const { owner, repo } = this._context.repo;
+
+        try {
+            const github = await this._octokit.repos.getContent({ owner, repo, path: '.github', ref });
+            const entries = Array.isArray(github.data) ? github.data : [];
+            return entries.find(entry => entry.name === 'workflows' && entry.type === 'dir')?.sha;
+        } catch (ex) {
+            if ((ex as { status?: number }).status === 404) return undefined;
+            throw ex;
         }
     }
 

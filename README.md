@@ -334,6 +334,11 @@ resolves to `already-released` with `should-publish` false, so the publishing jo
 makes re-running a completed run safe - which matters most on `push`, where re-running the workflow is the
 natural response to a publishing step that failed for its own reasons.
 
+A release run whose commit has different `.github/workflows` than the default branch - another pull request changed
+workflows on the default branch after it started - cannot create the release: the `GITHUB_TOKEN` may not tag such a
+commit and GitHub answers 403. The post stage fails saying so. Do not re-run it; run the Publish workflow with
+`workflow_dispatch` from the current default branch, with the pull request's release notes.
+
 ## Concurrent runs
 
 Two runs that start close together - two merges a minute apart, with a concurrency group that does not
