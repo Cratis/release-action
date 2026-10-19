@@ -39934,7 +39934,35 @@ class VersionClaimedByAnotherCommit extends Error {
     }
 }
 
+;// CONCATENATED MODULE: ./Source/WorkflowsDifferFromDefaultBranch.ts
+/**
+ * The error raised when GitHub refuses to create the release because the commit's workflows differ from the
+ * default branch's.
+ *
+ * Creating a release creates its tag, and a tag on a commit whose `.github/workflows` differ from the default
+ * branch head counts as a workflow change, which the `GITHUB_TOKEN` cannot make. GitHub answers with a 403
+ * ("Resource not accessible by integration"). It happens when a release run reaches its release job after another
+ * pull request changed workflows on the default branch. Re-running the run fails the same way, as it still
+ * targets the same commit.
+ */
+class WorkflowsDifferFromDefaultBranch extends Error {
+    targetCommitish;
+    defaultBranch;
+    rejection;
+    constructor(targetCommitish, defaultBranch, rejection) {
+        super(`The release could not be created: the '.github/workflows' of commit '${targetCommitish}' differ from '${defaultBranch}', ` +
+            `and the GITHUB_TOKEN cannot create a tag on a commit that changes workflows. Do not re-run this run - it fails the same way. ` +
+            `Release by running the Publish workflow with 'workflow_dispatch' from the current '${defaultBranch}', giving it the pull request's release notes. ` +
+            `Original error: ${rejection?.message ?? String(rejection)}`);
+        this.targetCommitish = targetCommitish;
+        this.defaultBranch = defaultBranch;
+        this.rejection = rejection;
+        this.name = 'WorkflowsDifferFromDefaultBranch';
+    }
+}
+
 ;// CONCATENATED MODULE: ./Source/Releases.ts
+
 
 
 const commitSha = /^[0-9a-f]{40}$/i;
@@ -40039,9 +40067,54 @@ class Releases {
             });
         }
         catch (ex) {
-            if (ex.status !== 422)
+            const status = ex.status;
+            if (status === 403)
+                await this.explainForbidden(release, ex);
+            if (status !== 422)
                 throw ex;
             await this.reconcileWithExisting(release, ex);
+        }
+    }
+    /**
+     * Always throws. A 403 on creating the release is most often the token being unable to create a tag on a
+     * commit whose workflows differ from the default branch's - which only a comparison can tell from any other
+     * refusal. Any other 403, and a comparison that itself fails, keep the original error.
+     */
+    async explainForbidden(release, rejection) {
+        let defaultBranch;
+        let differ;
+        try {
+            const { owner, repo } = this._context.repo;
+            defaultBranch = (await this._octokit.repos.get({ owner, repo })).data.default_branch;
+            const [atCommit, atDefaultBranch] = await Promise.all([
+                this.workflowsTreeAt(release.targetCommitish),
+                this.workflowsTreeAt(defaultBranch)
+            ]);
+            differ = atCommit !== atDefaultBranch;
+        }
+        catch (ex) {
+            this._logger.warn('Could not compare the workflows of the commit with the default branch.');
+            this._logger.warn(ex);
+            throw rejection;
+        }
+        if (differ)
+            throw new WorkflowsDifferFromDefaultBranch(release.targetCommitish, defaultBranch, rejection);
+        throw rejection;
+    }
+    /**
+     * The tree SHA of `.github/workflows` at a ref, or undefined when the ref has no such directory.
+     */
+    async workflowsTreeAt(ref) {
+        const { owner, repo } = this._context.repo;
+        try {
+            const github = await this._octokit.repos.getContent({ owner, repo, path: '.github', ref });
+            const entries = Array.isArray(github.data) ? github.data : [];
+            return entries.find(entry => entry.name === 'workflows' && entry.type === 'dir')?.sha;
+        }
+        catch (ex) {
+            if (ex.status === 404)
+                return undefined;
+            throw ex;
         }
     }
     /**
