@@ -8,6 +8,8 @@ export type FakeOctokit = {
     getReleaseByTag: SinonStub;
     createRelease: SinonStub;
     getRef: SinonStub;
+    getRepository: SinonStub;
+    getContent: SinonStub;
     getTag: SinonStub;
     pullsGet: SinonStub;
     setReleases(releases: unknown[]): void;
@@ -40,10 +42,12 @@ export const aFakeOctokit = (): FakeOctokit => {
     const pullsGet = sinon.stub();
     const getRef = sinon.stub();
     const getTag = sinon.stub();
+    const getRepository = sinon.stub().resolves({ data: { default_branch: 'main' } });
+    const getContent = sinon.stub();
 
     const octokit = {
         paginate,
-        repos: { getCommit, getReleaseByTag, createRelease, listReleases, listTags, listPullRequestsAssociatedWithCommit },
+        repos: { get: getRepository, getContent, getCommit, getReleaseByTag, createRelease, listReleases, listTags, listPullRequestsAssociatedWithCommit },
         pulls: { get: pullsGet },
         git: { getRef, getTag }
     } as unknown as Octokit;
@@ -55,6 +59,8 @@ export const aFakeOctokit = (): FakeOctokit => {
         getReleaseByTag,
         createRelease,
         getRef,
+        getRepository,
+        getContent,
         getTag,
         pullsGet,
         setReleases: releases => store.set(listReleases, releases),
