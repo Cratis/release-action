@@ -455,4 +455,5 @@ output is a CSV of the included PR numbers, also shown in the step summary.
 History is read through the GitHub API, so a shallow checkout is sufficient. If
 the last release tag is not on the target's first-parent history, the action warns
 and falls back to the existing single-PR behavior. Repositories without any
-release or version tag start with their full first-parent history.
+release or version tag inspect up to 250 first-parent commits, falling back with a
+warning if that limit does not reach the root.

@@ -40265,23 +40265,26 @@ class PendingPullRequests {
         if (!this._releases.getLatestReleaseCommit)
             throw new Error('Release tag lookup is unavailable.');
         const lower = await this._releases.getLatestReleaseCommit();
-        if (lower === upper)
-            return { pullRequests: [], fallback: false };
         const { owner, repo } = this._context.repo;
+        let limit = 250;
+        if (lower) {
+            const { data: comparison } = await this._octokit.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${lower}...${upper}` });
+            if (['identical', 'behind'].includes(comparison.status))
+                return { pullRequests: [], fallback: false };
+            if (comparison.status === 'diverged')
+                return this.fallback();
+            limit = comparison.ahead_by;
+        }
         const commits = [];
         let current = upper;
-        while (current && current !== lower) {
+        while (current && current !== lower && commits.length < limit) {
             const { data: commit } = await this._octokit.repos.getCommit({ owner, repo, ref: current });
             commits.push(commit);
             current = commit.parents[0]?.sha;
         }
-        if (lower && current !== lower) {
-            const comparison = await this._octokit.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${upper}...${lower}` });
-            if (['ahead', 'identical'].includes(comparison.data.status))
-                return { pullRequests: [], fallback: false };
-            this._logger.warn('The latest release tag is not on the first-parent history; falling back to single-PR behavior.');
-            return { pullRequests: [], fallback: true };
-        }
+        if (current !== lower)
+            return this.fallback(lower
+                ? undefined : 'The unreleased first-parent history exceeds the 250-commit limit');
         const defaultBranch = (await this._octokit.repos.get({ owner, repo })).data.default_branch;
         const collected = new Map();
         for (const commit of commits.reverse()) {
@@ -40300,6 +40303,10 @@ class PendingPullRequests {
             }
         }
         return { pullRequests: [...collected.values()], fallback: false };
+    }
+    fallback(message = 'The latest release tag is not on the first-parent history') {
+        this._logger.warn(`${message}; falling back to single-PR behavior.`);
+        return { pullRequests: [], fallback: true };
     }
 }
 
