@@ -64,6 +64,25 @@ export class Releases implements IReleases {
         }
     }
 
+    async getLatestReleaseCommit(): Promise<string | undefined> {
+        const { owner, repo } = this._context.repo;
+        const releases = (await this.getAll()).filter(release => !release.draft && !release.prerelease);
+        const highest = this.highest(this.releaseVersions(releases));
+        let tag = highest && releases.find(release => semver.parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
+        if (!tag) {
+            const tags = (await this.getTags()).filter(tag => !semver.parse(this.stripTagPrefix(tag.name))?.prerelease.length);
+            const version = this.highest(this.tagVersions(tags));
+            tag = version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
+        }
+        if (!tag) return undefined;
+        let object = (await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` })).data.object;
+        for (let depth = 0; object.type === 'tag' && depth < 16; depth++) {
+            object = (await this._octokit.git.getTag({ owner, repo, tag_sha: object.sha })).data.object;
+        }
+        if (object.type !== 'commit' || !commitSha.test(object.sha)) throw new Error(`Could not resolve release tag '${tag}' to a commit.`);
+        return object.sha;
+    }
+
     async targetOf(tag: string): Promise<string | undefined> {
         const { owner, repo } = this._context.repo;
 

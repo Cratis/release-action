@@ -399,3 +399,60 @@ This GitHub action powers the release pipelines across [Cratis](https://www.crat
 - **[Samples](https://github.com/Cratis/Samples)** — runnable event sourcing and CQRS samples for the whole stack
 
 Everything Cratis publishes today is MIT licensed and free to use.
+
+## Batched releases (opt-in)
+
+The default `release-window: '0'` keeps single-PR releases unchanged. Set a positive
+number of minutes to collect every merged PR since the latest stable release tag
+on the default branch. The oldest pending merge starts the window; a busy branch
+does not reset it. The target is the event SHA (the merge SHA for a PR event), so
+check out and build that same commit.
+
+```yaml
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        default: '0.0.0'
+
+concurrency:
+  group: publish-${{ github.repository }}
+  queue: max
+
+# In the existing publish job, after checking out and building the target:
+# - uses: cratis/release-action@v1
+#   with:
+#     release-window: '60'
+#     hotfix-labels: 'hotfix'
+```
+
+A schedule is required to release pending changes after the window expires. Use
+**one concurrency group shared by all triggers**, including PR events, and keep
+`queue: max` so another run cannot claim the version concurrently. Do not cancel
+an in-flight publish. No external state or sleeping job is used.
+
+Before the window expires, `should-publish` is false with reason `batched`; an
+empty range (including an older, already covered event) reports `nothing-pending`.
+A PR labeled `hotfix` bypasses the wait, as does `workflow_dispatch` with an empty
+or `0.0.0` version. Both release **all** pending changes, not just the trigger PR.
+If a hotfix-triggered batch contains a major change, the run fails with reason
+`error`, naming the major PR. Run Publish manually to release everything,
+including that major. A real explicit version retains the existing override.
+
+The highest intent wins across PRs (`major` > `minor` > `patch`); multiple intents
+on a single PR are an error. Dependabot and `no-release` PRs are excluded, and
+revert pairs cancel out (a revert of a revert restores the original notes).
+Unlabeled PRs contribute notes but no bump; if none has an intent the reason is
+`no-label` and the changes stay pending. One PR keeps its body verbatim; several
+PRs merge Added, Changed, Fixed, Removed, Security and Deprecated sections,
+preserving whole bullets and their trailing issue references. The `pull-requests`
+output is a CSV of the included PR numbers, also shown in the step summary.
+
+History is read through the GitHub API, so a shallow checkout is sufficient. If
+the last release tag is not on the target's first-parent history, the action warns
+and falls back to the existing single-PR behavior. Repositories without any
+release or version tag start with their full first-parent history.

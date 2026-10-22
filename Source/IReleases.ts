@@ -11,6 +11,9 @@ export interface IReleases {
      */
     getLatestReleaseVersion(): Promise<SemVer>;
 
+    /** The latest stable release tag's commit, or undefined before the first release/tag. */
+    getLatestReleaseCommit?(): Promise<string | undefined>;
+
     /**
      * The commit the release for a tag points at, or undefined when there is no release for the tag. This is the
      * definitive idempotency check - GitHub rejects a second release for the same tag, and a version already

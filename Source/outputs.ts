@@ -13,4 +13,5 @@ export const setOutputsFrom = (decision: ReleaseDecision): void => {
     setOutput('isolated-for-pull-request', decision.isIsolatedForPullRequest);
     setOutput('previous-version', decision.previousVersion);
     setOutput('reason', decision.reason);
+    if (decision.pullRequests) setOutput('pull-requests', decision.pullRequests.join(','));
 };

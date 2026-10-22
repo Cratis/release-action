@@ -26,6 +26,12 @@ export type ReleasedReason =
  * The reasons nothing is released.
  */
 export type NotReleasedReason =
+    /** Pending changes are waiting for the release window to elapse. */
+    | 'batched'
+
+    /** No unreleased changes remain in the first-parent range. */
+    | 'nothing-pending'
+
     /**
      * No merged pull request could be found for the commit - a commit pushed straight to the branch rather
      * than merged through a pull request. Expected, and not a problem.

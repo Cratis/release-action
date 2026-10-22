@@ -34,6 +34,14 @@ inputs:
     description: "Comma-separated label names that mean a merged pull request deliberately publishes nothing."
     required: false
     default: "no-release"
+  release-window:
+    description: "Minutes from the oldest pending merge before releasing all pending changes. Zero preserves single-PR behavior. Requires a schedule and one concurrency group shared by every trigger."
+    required: false
+    default: "0"
+  hotfix-labels:
+    description: "Comma-separated labels that bypass the release window. A pending major blocks a hotfix release; use workflow_dispatch to release it."
+    required: false
+    default: "hotfix"
   close-resolved-issues:
     description: "Whether to close the issues the release notes name as resolved. Only the trailing parenthesized form is read - a note bullet ending in '(#123)'. Prose mentions and cross-repository references are left alone. Set to 'false' to turn it off. Needs a token with 'issues: write'."
     required: false
@@ -52,8 +60,10 @@ outputs:
     description: "Boolean telling whether or not it should be an isolated release for the pull request only"
   previous-version:
     description: "The version the new version was bumped from, or empty when there is no predecessor"
+  pull-requests:
+    description: "Comma-separated numbers of the included pull requests in a batched decision. Empty when nothing is pending. Not set in single-PR mode."
   reason:
-    description: "Why the action decided what it decided - 'release' or 'prerelease' when something is published, otherwise one of 'no-pull-request', 'not-merged', 'no-label', 'no-release', 'dependabot', 'already-released', 'no-prerelease-version', 'placeholder-version' or 'error'. Lets a workflow fail on the reasons that cost a release ('no-label', 'error') without failing on the ones that are expected."
+    description: "Why the action decided what it decided - 'release' or 'prerelease' when something is published, otherwise one of 'no-pull-request', 'not-merged', 'no-label', 'no-release', 'dependabot', 'already-released', 'no-prerelease-version', 'placeholder-version', 'batched', 'nothing-pending' or 'error'. Lets a workflow fail on the reasons that cost a release ('no-label', 'error') without failing on the ones that are expected."
 
 branding:
   icon: "tag"

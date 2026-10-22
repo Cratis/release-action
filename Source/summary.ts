@@ -18,7 +18,8 @@ export const summaryRowsFor = (decision: ReleaseDecision): [string, string][] =>
     ['Tag', orDash(decision.tag)],
     ['Previous version', orDash(decision.previousVersion)],
     ['Prerelease', yesNo(decision.isPrerelease)],
-    ['Isolated for pull request', yesNo(decision.isIsolatedForPullRequest)]
+    ['Isolated for pull request', yesNo(decision.isIsolatedForPullRequest)],
+    ...(decision.pullRequests ? [['Pull requests', decision.pullRequests.map(number => `#${number}`).join(', ') || '—'] as [string, string]] : [])
 ];
 
 /**
