@@ -1,5 +1,7 @@
 import { SemVer } from 'semver';
 
+import { AggregatedReleaseNotes } from './AggregatedReleaseNotes';
+import { IPendingPullRequests } from './IPendingPullRequests';
 import { IActionContext } from './IActionContext';
 import { IInputs } from './IInputs';
 import { ILogger } from './ILogger';
@@ -7,7 +9,7 @@ import { IPullRequests } from './IPullRequests';
 import { IReleaseDecisions } from './IReleaseDecisions';
 import { IVersions } from './IVersions';
 import { ReleaseDecision, nothingToRelease } from './ReleaseDecision';
-import { isFromDependabot } from './PullRequest';
+import { PullRequest, isFromDependabot, isMerged } from './PullRequest';
 
 /**
  * The main step of the action. Works out which version - if any - this run should produce, and records that
@@ -21,7 +23,8 @@ export class HandleVersion {
         readonly _decisions: IReleaseDecisions,
         readonly _inputs: IInputs,
         readonly _context: IActionContext,
-        readonly _logger: ILogger) {
+        readonly _logger: ILogger,
+        readonly _pending?: IPendingPullRequests) {
     }
 
     async run(): Promise<ReleaseDecision> {
@@ -40,8 +43,69 @@ export class HandleVersion {
     }
 
     private async decide(): Promise<ReleaseDecision> {
+        const manualBatch = this._context.eventName === 'workflow_dispatch' && this._inputs.version === '0.0.0';
+        if ((this._inputs.releaseWindow ?? 0) > 0 && (!this._inputs.version || manualBatch)) {
+            return await this.decideFromPendingPullRequests();
+        }
         if (this._inputs.version) return this.decideFromExplicitVersion(this._inputs.version);
         return await this.decideFromPullRequest();
+    }
+
+    private async decideFromPendingPullRequests(): Promise<ReleaseDecision> {
+        const eventPullRequest = this._context.payload.pull_request as unknown as PullRequest | undefined;
+        if (eventPullRequest && !isMerged(eventPullRequest)) return await this.decideFromPullRequest();
+        const upper = eventPullRequest?.merge_commit_sha ?? this._context.sha;
+        if (!this._pending) throw new Error('Pending pull request collection is unavailable.');
+        const pending = await this._pending.get(upper);
+        if (pending.fallback) return await this.decideFromPullRequest();
+
+        const { owner, repo } = this._context.repo;
+        const included = AggregatedReleaseNotes.included(pending.pullRequests, `${owner}/${repo}`, this._inputs);
+        const pullRequests = included.map(pullRequest => pullRequest.number);
+        const skip = (reason: Parameters<typeof nothingToRelease>[0]) => ({ ...nothingToRelease(reason), pullRequests });
+        if (!included.length) return skip('nothing-pending');
+        const intents = included.flatMap(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs));
+        const bump = (['major', 'minor', 'patch'] as const).find(intent => intents.includes(intent));
+        if (!bump) return skip('no-label');
+
+        const manual = this._context.eventName === 'workflow_dispatch';
+        const hotfix = included.some(pullRequest => pullRequest.labels.some(label =>
+            (this._inputs.hotfixLabels ?? ['hotfix']).includes(label.name ?? '')));
+        const major = included.find(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs).includes('major'));
+        if (hotfix && major && !manual) {
+            const failureMessage = `A major change is pending (#${major.number}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
+            // Fail once, on the run the merge started. Scheduled ticks see the same pending range until someone
+            // releases it by hand, so failing there would turn every tick red without adding information.
+            if (this._context.eventName === 'schedule') {
+                this._logger.warn(failureMessage);
+                return skip('batched');
+            }
+            this._logger.error(failureMessage);
+            return { ...skip('error'), failureMessage };
+        }
+        if (!manual && !hotfix && !this.windowElapsed(included)) return skip('batched');
+        if (!this._versions.nextVersionFor) throw new Error('Batch version selection is unavailable.');
+        const versionInfo = await this._versions.nextVersionFor(bump, upper);
+        if (!versionInfo.version) return skip(versionInfo.reason ?? 'no-label');
+        return {
+            shouldPublish: true,
+            shouldCreateRelease: true,
+            version: versionInfo.version.version,
+            tag: this.tagFor(versionInfo.version.version),
+            isPrerelease: false,
+            isIsolatedForPullRequest: false,
+            releaseNotes: AggregatedReleaseNotes.merge(included, this._logger),
+            previousVersion: versionInfo.previousVersion,
+            targetCommitish: upper,
+            reason: 'release',
+            pullRequests
+        };
+    }
+
+    private windowElapsed(pullRequests: PullRequest[]): boolean {
+        const times = pullRequests.map(pullRequest => Date.parse(pullRequest.merged_at ?? ''));
+        if (times.some(time => !Number.isFinite(time))) throw new Error('A pending pull request has no valid merge timestamp.');
+        return Date.now() - Math.min(...times) >= (this._inputs.releaseWindow ?? 0) * 60_000;
     }
 
     private decideFromExplicitVersion(version: string): ReleaseDecision {

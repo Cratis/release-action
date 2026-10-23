@@ -6,6 +6,10 @@ import { IReleaseOptions } from './IReleaseOptions';
 export interface IInputs extends IReleaseOptions {
     readonly gitHubToken: string;
     readonly version: string;
+
+    /** Minutes to wait from the oldest pending merge. Absent or zero preserves single-PR behavior. */
+    readonly releaseWindow?: number;
+    readonly hotfixLabels?: readonly string[];
     readonly releaseNotes: string;
 
     /**

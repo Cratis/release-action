@@ -3,6 +3,7 @@ import { context } from '@actions/github';
 import { Octokit } from '@octokit/rest';
 
 import { HandleVersion } from './HandleVersion';
+import { PendingPullRequests } from './PendingPullRequests';
 import { PullRequests } from './PullRequests';
 import { ReleaseDecisions } from './ReleaseDecisions';
 import { Releases } from './Releases';
@@ -24,10 +25,12 @@ const run = async (): Promise<void> => {
         new ReleaseDecisions(),
         inputs,
         context,
-        logger);
+        logger,
+        (inputs.releaseWindow ?? 0) > 0 ? new PendingPullRequests(octokit, releases, context, logger) : undefined);
 
     const decision = await handleVersion.run();
     setOutputsFrom(decision);
+    if (decision.failureMessage) setFailed(decision.failureMessage);
     await writeSummary(decision, logger);
 };
 

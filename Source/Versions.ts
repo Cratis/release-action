@@ -77,6 +77,13 @@ export class Versions implements IVersions {
             return VersionInfo.noReleaseBecause('already-released');
         }
 
+        return await this.nextVersionFor(bump);
+    }
+
+    async nextVersionFor(bump: Bump, targetCommitish?: string): Promise<VersionInfo> {
+        if (targetCommitish && await this._releases.existsForSha(targetCommitish)) {
+            return VersionInfo.noReleaseBecause('already-released');
+        }
         const latest = await this._releases.getLatestReleaseVersion();
 
         // Capture the predecessor before bumping - `semver.inc` mutates in place, so after the bump `latest`

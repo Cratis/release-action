@@ -39618,24 +39618,6 @@ const dist_src_Octokit = Octokit.plugin(requestLog, legacyRestEndpointMethods, p
 // EXTERNAL MODULE: ./node_modules/semver/index.js
 var semver = __nccwpck_require__(2088);
 var semver_default = /*#__PURE__*/__nccwpck_require__.n(semver);
-;// CONCATENATED MODULE: ./Source/ReleaseDecision.ts
-/**
- * The decision to release nothing at all. This is what every failure and every "not a release" path resolves
- * to, so that the action always fails closed - carrying the reason it got there.
- */
-const nothingToRelease = (reason) => ({
-    shouldPublish: false,
-    shouldCreateRelease: false,
-    version: '',
-    tag: '',
-    isPrerelease: false,
-    isIsolatedForPullRequest: false,
-    releaseNotes: '',
-    previousVersion: '',
-    targetCommitish: '',
-    reason
-});
-
 ;// CONCATENATED MODULE: ./Source/PullRequest.ts
 /**
  * Whether the pull request was actually merged, as opposed to merely being closed.
@@ -39657,7 +39639,441 @@ const isClosedWithoutBeingMerged = (pullRequest) => pullRequest.state === 'close
  */
 const isFromDependabot = (pullRequest) => (pullRequest.user?.login ?? '').toLowerCase().includes('dependabot');
 
+;// CONCATENATED MODULE: ./Source/ReleaseNotes.ts
+/**
+ * Turns the notes a release is cut with - a pull request description, or the notes a manual run was given - into
+ * the body that is published.
+ *
+ * Pull request templates carry their guidance in HTML comments, and authors often leave them in place. The release
+ * page hides a comment, but the published body keeps it, so every consumer of the raw body - feeds, aggregated
+ * release notes, anything reading the API - sees guidance that was never meant to be published. Closed comments
+ * are therefore removed.
+ *
+ * Code is left exactly as written. A fenced block or an inline span showing `<!-- ... -->` is an example of the
+ * syntax, not a comment, and removing it would change what the notes document. The notes are read from left to
+ * right the way Markdown reads them, so whichever starts first wins: backticks inside a comment are part of the
+ * comment, and a comment marker inside code is part of the code.
+ *
+ * Where Markdown is ambiguous or broken - an unclosed fence, say - the reading leans towards removing comments. A
+ * comment wrongly kept publishes hidden guidance and can close an issue it names; one wrongly removed only shortens
+ * an example in a block that was malformed already.
+ */
+class ReleaseNotes {
+    static commentStart = '<!--';
+    static commentEnd = '-->';
+    // A list item can open a fence on its own line: `1. ```html`. The marker's width counts as indentation.
+    static listMarker = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
+    // A backtick fence's info string cannot hold a backtick: a line starting ```js``` is an inline code span.
+    static fence = /^([ \t]*)(?:(`{3,})[^`]*|(~{3,}).*)$/;
+    // A code span is inline, so it never runs past the end of its block: a blank line, or a line that starts
+    // another block - a list item, a heading, a deeper quote, a fence, a thematic break or an HTML comment.
+    static startOfAnotherBlock = /^[ \t]*(?:$|<!--|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)/;
+    /**
+     * Removes the closed HTML comments from release notes, leaving fenced and inline code untouched. A comment
+     * that is alone on its lines takes those lines with it, so a template comment leaves no blank gap behind. A
+     * comment that is never closed is left alone - it is not clear where it was meant to end.
+     * @param notes The release notes.
+     * @returns The notes without their comments.
+     */
+    static withoutComments(notes) {
+        if (!notes) {
+            return '';
+        }
+        // A fence opened inside a list item and followed by a bare fence further left reads two ways: the bare fence
+        // closes the item's block, or the item ends there and the bare fence opens a new block. Markdown renders the
+        // second, but authors often mean the first. Both readings are taken and everything either of them removes is
+        // removed, so the ambiguity never keeps a comment that one of the readings sees in the published notes.
+        const removals = [
+            ...ReleaseNotes.removalsIn(notes, true),
+            ...ReleaseNotes.removalsIn(notes, false)
+        ].sort((left, right) => left[0] - right[0]);
+        let published = '';
+        let kept = 0;
+        for (const [start, end] of removals) {
+            if (start > kept) {
+                published += notes.slice(kept, start);
+            }
+            kept = Math.max(kept, end);
+        }
+        return published + notes.slice(kept);
+    }
+    /**
+     * The ranges of the notes - start inclusive, end exclusive - one reading of them removes.
+     */
+    static removalsIn(notes, outdentedFenceCloses) {
+        const removals = [];
+        let published = '';
+        let index = 0;
+        // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
+        // full of unclosed openings slow to read.
+        let unclosedFrom = notes.length;
+        // The reading only moves forward, so the start of the current line is found by moving forward with it -
+        // searching back from every code span would make a long line full of them slow to read.
+        let lineStart = 0;
+        let lineScannedTo = 0;
+        // A fence that found no closing line before the end of the notes will not find one from further down either;
+        // remembering that keeps notes full of stray fences from being read again and again to the end.
+        const unclosedFences = new Set();
+        const lineStartOf = (position) => {
+            for (; lineScannedTo < position; lineScannedTo++) {
+                if (notes[lineScannedTo] === '\n')
+                    lineStart = lineScannedTo + 1;
+            }
+            return lineStart;
+        };
+        while (index < notes.length) {
+            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses);
+            if (end > index) {
+                published += notes.slice(index, end);
+                index = end;
+                continue;
+            }
+            if (index < unclosedFrom && notes.startsWith(ReleaseNotes.commentStart, index)) {
+                const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
+                if (close === -1) {
+                    unclosedFrom = index;
+                }
+                else {
+                    const removed = ReleaseNotes.removeComment(notes, published, close + ReleaseNotes.commentEnd.length);
+                    removals.push([removed.withItsLines ? lineStartOf(index) : index, removed.next]);
+                    published = removed.published;
+                    index = removed.next;
+                    continue;
+                }
+            }
+            published += notes[index];
+            index++;
+        }
+        return removals;
+    }
+    /**
+     * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
+     * must be kept verbatim starts there.
+     */
+    static endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses) {
+        const atLineStart = index === 0 || notes[index - 1] === '\n';
+        if (atLineStart) {
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences, outdentedFenceCloses);
+            if (fenceEnd !== undefined) {
+                return fenceEnd;
+            }
+        }
+        // An escaped character is literal - `\<!--` is not a comment and `` \` `` does not start a code span.
+        if (notes[index] === '\\' && index + 1 < notes.length) {
+            return index + 2;
+        }
+        if (notes[index] === '`') {
+            return ReleaseNotes.endOfCodeSpan(notes, index, lineStartOf(index));
+        }
+        return index;
+    }
+    /**
+     * Drops the comment ending at an index from the notes. When nothing but whitespace shares its first and last
+     * lines, the whole of those lines goes with it.
+     */
+    static removeComment(notes, published, end) {
+        const lineStart = published.lastIndexOf('\n') + 1;
+        const newline = notes.indexOf('\n', end);
+        const lineEnd = newline === -1 ? notes.length : newline;
+        const aloneOnItsLines = published.slice(lineStart).trim() === '' && notes.slice(end, lineEnd).trim() === '';
+        if (!aloneOnItsLines) {
+            return { published, next: end, withItsLines: false };
+        }
+        return {
+            published: published.slice(0, lineStart),
+            next: newline === -1 ? notes.length : newline + 1,
+            withItsLines: true
+        };
+    }
+    /**
+     * The end of a fenced code block opening at the start of a line, or undefined when no fence opens there. The
+     * block closes at a line holding only a fence of the same character that is at least as long, indented at most
+     * three columns more than the opening one, or where the quote or list item holding it ends.
+     *
+     * A fence that is never closed is not treated as code. Markdown would render the rest of the notes as code, but
+     * then every comment after a stray fence would be published - and an issue it names closed - so an unclosed
+     * fence is read as plain text instead, its own backticks included. The worst that costs is a comment shown
+     * inside that broken block.
+     */
+    static endOfFencedBlock(notes, lineStart, unclosedFences, outdentedFenceCloses) {
+        const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
+        const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
+        let rest = ReleaseNotes.lineAt(notes, quoted.end, firstLineEnd);
+        let markers = '';
+        for (let marker = ReleaseNotes.listMarker.exec(rest); marker; marker = ReleaseNotes.listMarker.exec(rest)) {
+            markers += marker[0];
+            rest = rest.slice(marker[0].length);
+        }
+        const opening = ReleaseNotes.fence.exec(rest);
+        if (!opening) {
+            return undefined;
+        }
+        const fence = opening[2] ?? opening[3];
+        const afterOpeningFence = quoted.end + markers.length + opening[1].length + fence.length;
+        // An indented fence sits in a list item - opened on the marker's line or on a continuation line of the
+        // item - and the item's content starts where the fence does.
+        const contentColumn = ReleaseNotes.columnsOf(markers + opening[1]);
+        const kind = `${fence}:${quoted.count}:${contentColumn}`;
+        if (unclosedFences.has(kind)) {
+            return afterOpeningFence;
+        }
+        const closing = new RegExp(`^([ \\t]*)${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
+        let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
+        while (line < notes.length) {
+            const lineEnd = ReleaseNotes.endOfLine(notes, line);
+            const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
+            if (inside.count < quoted.count) {
+                return line;
+            }
+            const text = ReleaseNotes.lineAt(notes, inside.end, lineEnd);
+            const closed = closing.exec(text);
+            if (closed) {
+                const columns = ReleaseNotes.columnsOf(closed[1]);
+                const outdented = columns < contentColumn;
+                if (columns <= contentColumn + 3 && (!outdented || outdentedFenceCloses)) {
+                    return ReleaseNotes.startOfNextLine(notes, lineEnd);
+                }
+            }
+            if (ReleaseNotes.leavesListItem(text, contentColumn)) {
+                return line;
+            }
+            line = ReleaseNotes.startOfNextLine(notes, lineEnd);
+        }
+        unclosedFences.add(kind);
+        return afterOpeningFence;
+    }
+    /**
+     * Whether a line leaves the list item holding a fence - a line that is not blank and is indented less than the
+     * item's content.
+     */
+    static leavesListItem(line, contentColumn) {
+        if (contentColumn === 0 || line.trim() === '') {
+            return false;
+        }
+        return ReleaseNotes.columnsOf(line.slice(0, line.length - line.trimStart().length)) < contentColumn;
+    }
+    /**
+     * How many columns text at the start of a line takes up, with a tab advancing to the next multiple of four as
+     * Markdown counts it.
+     */
+    static columnsOf(text) {
+        let columns = 0;
+        for (const character of text) {
+            columns = character === '\t' ? columns + 4 - (columns % 4) : columns + 1;
+        }
+        return columns;
+    }
+    /**
+     * The end of an inline code span opening at an index - after the closing run of backticks of the same length.
+     * A run that is never closed within its block is literal backticks, and ends right after itself.
+     */
+    static endOfCodeSpan(notes, start, lineStart) {
+        const length = ReleaseNotes.backtickRunAt(notes, start);
+        const afterOpening = start + length;
+        const depth = ReleaseNotes.quotesAt(notes, lineStart, start).count;
+        let index = afterOpening;
+        while (index < notes.length) {
+            if (notes[index] === '\n') {
+                const next = index + 1;
+                if (ReleaseNotes.startsAnotherBlock(notes, next, depth)) {
+                    return afterOpening;
+                }
+                index = next;
+                continue;
+            }
+            if (notes[index] !== '`') {
+                index++;
+                continue;
+            }
+            const run = ReleaseNotes.backtickRunAt(notes, index);
+            if (run === length) {
+                return index + run;
+            }
+            index += run;
+        }
+        return afterOpening;
+    }
+    /**
+     * Whether the line starting at an index leaves the block a code span sits in - by leaving the quotes it is in,
+     * or by starting another block inside them.
+     */
+    static startsAnotherBlock(notes, lineStart, depth) {
+        const lineEnd = ReleaseNotes.endOfLine(notes, lineStart);
+        const quoted = ReleaseNotes.quotesAt(notes, lineStart, lineEnd, depth);
+        return quoted.count < depth || ReleaseNotes.startOfAnotherBlock.test(ReleaseNotes.lineAt(notes, quoted.end, lineEnd));
+    }
+    /**
+     * Reads the block quote markers - `>`, each after at most three spaces and followed by an optional space - at
+     * the start of a line, up to a maximum. Read one character at a time, so a long run of markers costs no more
+     * than its length.
+     */
+    static quotesAt(notes, lineStart, lineEnd, maximum = Number.MAX_SAFE_INTEGER) {
+        let count = 0;
+        let end = lineStart;
+        while (count < maximum) {
+            let position = end;
+            while (position < lineEnd && position - end < 3 && notes[position] === ' ') {
+                position++;
+            }
+            if (position >= lineEnd || notes[position] !== '>') {
+                break;
+            }
+            position++;
+            if (position < lineEnd && (notes[position] === ' ' || notes[position] === '\t')) {
+                position++;
+            }
+            count++;
+            end = position;
+        }
+        return { count, end };
+    }
+    /**
+     * The text of a line, without the carriage return of a Windows line ending.
+     */
+    static lineAt(notes, start, end) {
+        return notes.slice(start, end).replace(/\r$/, '');
+    }
+    static backtickRunAt(notes, index) {
+        let end = index;
+        while (notes[end] === '`') {
+            end++;
+        }
+        return end - index;
+    }
+    static endOfLine(notes, index) {
+        const newline = notes.indexOf('\n', index);
+        return newline === -1 ? notes.length : newline;
+    }
+    static startOfNextLine(notes, lineEnd) {
+        return lineEnd < notes.length ? lineEnd + 1 : notes.length;
+    }
+}
+
+;// CONCATENATED MODULE: ./Source/AggregatedReleaseNotes.ts
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
+
+/** Keeps the net effect of revert chains and merges whole release-note bullets, never their issue references. */
+class AggregatedReleaseNotes {
+    static sections = ['Added', 'Changed', 'Fixed', 'Removed', 'Security', 'Deprecated'];
+    static intents(pullRequest, options) {
+        const intents = [
+            ['major', options.majorLabels], ['minor', options.minorLabels],
+            ['patch', options.patchLabels], ['no-release', options.noReleaseLabels]
+        ];
+        return intents.filter(([, names]) => pullRequest.labels.some(label => names.includes(label.name ?? '')))
+            .map(([intent]) => intent);
+    }
+    static included(pullRequests, repository, options) {
+        for (const pullRequest of pullRequests) {
+            if (!isFromDependabot(pullRequest) && this.intents(pullRequest, options).length > 1) {
+                throw new Error(`Pull request #${pullRequest.number} carries more than one release intent.`);
+            }
+        }
+        return this.netEffects(pullRequests, repository).filter(pullRequest => !isFromDependabot(pullRequest) && !this.intents(pullRequest, options).includes('no-release'));
+    }
+    static netEffects(pullRequests, repository) {
+        const effects = new Map();
+        const totals = new Map();
+        for (const [index, pullRequest] of pullRequests.entries()) {
+            const reference = (pullRequest.body ?? '').match(/^Reverts ([\w.-]+\/[\w.-]+)#(\d+)\.?\s*$/m);
+            const revertedSha = (pullRequest.body ?? '').match(/This reverts commit ([0-9a-f]{40})\b/i)?.[1];
+            const original = pullRequests.slice(0, index).find(candidate => (reference && reference[1].toLowerCase() === repository.toLowerCase() && candidate.number === Number(reference[2])) ||
+                (revertedSha && candidate.merge_commit_sha === revertedSha));
+            const prior = original && effects.get(original.number);
+            const effect = prior ? { root: prior.root, sign: -prior.sign } : { root: pullRequest.number, sign: 1 };
+            effects.set(pullRequest.number, effect);
+            totals.set(effect.root, (totals.get(effect.root) ?? 0) + effect.sign);
+        }
+        return pullRequests.filter(pullRequest => effects.get(pullRequest.number)?.root === pullRequest.number &&
+            (totals.get(pullRequest.number) ?? 0) > 0);
+    }
+    static merge(pullRequests, logger) {
+        if (pullRequests.length === 1)
+            return pullRequests[0].body ?? '';
+        const collected = new Map(this.sections.map(section => [section, []]));
+        for (const pullRequest of pullRequests) {
+            const sections = new Map(this.sections.map(section => [section, []]));
+            this.collect(pullRequest, sections, logger);
+            for (const [section, lines] of sections) {
+                const content = lines.join('\n').trim();
+                if (content)
+                    collected.get(section)?.push(content);
+            }
+        }
+        const merged = [...collected].filter(([, contents]) => contents.length)
+            .map(([section, contents]) => `## ${section}\n\n${contents.join('\n\n')}`).join('\n\n');
+        if (pullRequests.length && !merged)
+            throw new Error('No release-note sections found for the pending pull requests.');
+        return ReleaseNotes.withoutComments(merged);
+    }
+    static collect(pullRequest, collected, logger) {
+        let current;
+        let fence;
+        let inBullet = false;
+        let previousBlank = false;
+        for (const line of ReleaseNotes.withoutComments(pullRequest.body ?? '').split('\n')) {
+            const afterBlank = previousBlank;
+            previousBlank = !line.trim();
+            const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+            if (marker && (!fence || (marker[1][0] === fence[0] && marker[1].length >= fence.length))) {
+                fence = fence ? undefined : marker[1];
+            }
+            const heading = !fence && !marker && line.match(/^##\s+(.+?)\s*#*\s*$/);
+            if (heading) {
+                current = collected.get(heading[1]);
+                if (!current && heading[1] !== 'Summary')
+                    logger.warn(`PR #${pullRequest.number}: dropping unknown release-note section "${heading[1]}".`);
+                inBullet = false;
+            }
+            else if (current) {
+                if (fence || marker) {
+                    if (inBullet)
+                        current.push(line);
+                }
+                else if (!line.trim()) {
+                    current.push(line);
+                }
+                else if (/^###\s/.test(line)) {
+                    current.push(line);
+                    inBullet = false;
+                }
+                else if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(line)) {
+                    current.push(line);
+                    inBullet = true;
+                }
+                else if (inBullet && (/^(?: {2,}|\t)/.test(line) || !afterBlank)) {
+                    current.push(line);
+                }
+                else {
+                    inBullet = false;
+                }
+            }
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./Source/ReleaseDecision.ts
+/**
+ * The decision to release nothing at all. This is what every failure and every "not a release" path resolves
+ * to, so that the action always fails closed - carrying the reason it got there.
+ */
+const nothingToRelease = (reason) => ({
+    shouldPublish: false,
+    shouldCreateRelease: false,
+    version: '',
+    tag: '',
+    isPrerelease: false,
+    isIsolatedForPullRequest: false,
+    releaseNotes: '',
+    previousVersion: '',
+    targetCommitish: '',
+    reason
+});
+
 ;// CONCATENATED MODULE: ./Source/HandleVersion.ts
+
 
 
 
@@ -39672,13 +40088,15 @@ class HandleVersion {
     _inputs;
     _context;
     _logger;
-    constructor(_pullRequests, _versions, _decisions, _inputs, _context, _logger) {
+    _pending;
+    constructor(_pullRequests, _versions, _decisions, _inputs, _context, _logger, _pending) {
         this._pullRequests = _pullRequests;
         this._versions = _versions;
         this._decisions = _decisions;
         this._inputs = _inputs;
         this._context = _context;
         this._logger = _logger;
+        this._pending = _pending;
     }
     async run() {
         let decision;
@@ -39694,9 +40112,74 @@ class HandleVersion {
         return decision;
     }
     async decide() {
+        const manualBatch = this._context.eventName === 'workflow_dispatch' && this._inputs.version === '0.0.0';
+        if ((this._inputs.releaseWindow ?? 0) > 0 && (!this._inputs.version || manualBatch)) {
+            return await this.decideFromPendingPullRequests();
+        }
         if (this._inputs.version)
             return this.decideFromExplicitVersion(this._inputs.version);
         return await this.decideFromPullRequest();
+    }
+    async decideFromPendingPullRequests() {
+        const eventPullRequest = this._context.payload.pull_request;
+        if (eventPullRequest && !isMerged(eventPullRequest))
+            return await this.decideFromPullRequest();
+        const upper = eventPullRequest?.merge_commit_sha ?? this._context.sha;
+        if (!this._pending)
+            throw new Error('Pending pull request collection is unavailable.');
+        const pending = await this._pending.get(upper);
+        if (pending.fallback)
+            return await this.decideFromPullRequest();
+        const { owner, repo } = this._context.repo;
+        const included = AggregatedReleaseNotes.included(pending.pullRequests, `${owner}/${repo}`, this._inputs);
+        const pullRequests = included.map(pullRequest => pullRequest.number);
+        const skip = (reason) => ({ ...nothingToRelease(reason), pullRequests });
+        if (!included.length)
+            return skip('nothing-pending');
+        const intents = included.flatMap(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs));
+        const bump = ['major', 'minor', 'patch'].find(intent => intents.includes(intent));
+        if (!bump)
+            return skip('no-label');
+        const manual = this._context.eventName === 'workflow_dispatch';
+        const hotfix = included.some(pullRequest => pullRequest.labels.some(label => (this._inputs.hotfixLabels ?? ['hotfix']).includes(label.name ?? '')));
+        const major = included.find(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs).includes('major'));
+        if (hotfix && major && !manual) {
+            const failureMessage = `A major change is pending (#${major.number}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
+            // Fail once, on the run the merge started. Scheduled ticks see the same pending range until someone
+            // releases it by hand, so failing there would turn every tick red without adding information.
+            if (this._context.eventName === 'schedule') {
+                this._logger.warn(failureMessage);
+                return skip('batched');
+            }
+            this._logger.error(failureMessage);
+            return { ...skip('error'), failureMessage };
+        }
+        if (!manual && !hotfix && !this.windowElapsed(included))
+            return skip('batched');
+        if (!this._versions.nextVersionFor)
+            throw new Error('Batch version selection is unavailable.');
+        const versionInfo = await this._versions.nextVersionFor(bump, upper);
+        if (!versionInfo.version)
+            return skip(versionInfo.reason ?? 'no-label');
+        return {
+            shouldPublish: true,
+            shouldCreateRelease: true,
+            version: versionInfo.version.version,
+            tag: this.tagFor(versionInfo.version.version),
+            isPrerelease: false,
+            isIsolatedForPullRequest: false,
+            releaseNotes: AggregatedReleaseNotes.merge(included, this._logger),
+            previousVersion: versionInfo.previousVersion,
+            targetCommitish: upper,
+            reason: 'release',
+            pullRequests
+        };
+    }
+    windowElapsed(pullRequests) {
+        const times = pullRequests.map(pullRequest => Date.parse(pullRequest.merged_at ?? ''));
+        if (times.some(time => !Number.isFinite(time)))
+            throw new Error('A pending pull request has no valid merge timestamp.');
+        return Date.now() - Math.min(...times) >= (this._inputs.releaseWindow ?? 0) * 60_000;
     }
     decideFromExplicitVersion(version) {
         // `0.0.0` is the placeholder default shipped in the `workflow_dispatch` inputs of the publish
@@ -39766,6 +40249,70 @@ class HandleVersion {
         if (!current)
             this._logger.info('There is no pull request to work out a version from.');
         return current;
+    }
+}
+
+;// CONCATENATED MODULE: ./Source/PendingPullRequests.ts
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
+class PendingPullRequests {
+    _octokit;
+    _releases;
+    _context;
+    _logger;
+    constructor(_octokit, _releases, _context, _logger) {
+        this._octokit = _octokit;
+        this._releases = _releases;
+        this._context = _context;
+        this._logger = _logger;
+    }
+    async get(upper) {
+        if (!this._releases.getLatestReleaseCommit)
+            throw new Error('Release tag lookup is unavailable.');
+        const lower = await this._releases.getLatestReleaseCommit();
+        const { owner, repo } = this._context.repo;
+        let limit = 250;
+        if (lower) {
+            const { data: comparison } = await this._octokit.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${lower}...${upper}` });
+            if (['identical', 'behind'].includes(comparison.status))
+                return { pullRequests: [], fallback: false };
+            if (comparison.status === 'diverged')
+                return this.fallback();
+            limit = comparison.ahead_by;
+        }
+        const commits = [];
+        let current = upper;
+        while (current && current !== lower && commits.length < limit) {
+            const { data: commit } = await this._octokit.repos.getCommit({ owner, repo, ref: current });
+            commits.push(commit);
+            current = commit.parents[0]?.sha;
+        }
+        if (current !== lower)
+            return this.fallback(lower
+                ? undefined : 'The unreleased first-parent history exceeds the 250-commit limit');
+        const defaultBranch = (await this._octokit.repos.get({ owner, repo })).data.default_branch;
+        const collected = new Map();
+        for (const commit of commits.reverse()) {
+            const number = commit.parents.length > 1
+                ? Number(commit.commit.message.match(/^Merge pull request #(\d+) from\b/)?.[1]) : 0;
+            const candidates = number
+                ? [(await this._octokit.pulls.get({ owner, repo, pull_number: number })).data]
+                : await this._octokit.paginate(this._octokit.repos.listPullRequestsAssociatedWithCommit, { owner, repo, commit_sha: commit.sha, per_page: 100 });
+            for (const pullRequest of candidates) {
+                const matches = isMerged(pullRequest) && pullRequest.base.ref === defaultBranch && pullRequest.merge_commit_sha === commit.sha;
+                if (number && (!matches || pullRequest.number !== number)) {
+                    throw new Error(`Pull request #${number} is not a matching merge into ${defaultBranch}.`);
+                }
+                if (matches)
+                    collected.set(pullRequest.number, pullRequest);
+            }
+        }
+        return { pullRequests: [...collected.values()], fallback: false };
+    }
+    fallback(message = 'The latest release tag is not on the first-parent history') {
+        this._logger.warn(`${message}; falling back to single-PR behavior.`);
+        return { pullRequests: [], fallback: true };
     }
 }
 
@@ -40006,6 +40553,26 @@ class Releases {
             this._logger.warn(ex);
             return noReleasesYet();
         }
+    }
+    async getLatestReleaseCommit() {
+        const { owner, repo } = this._context.repo;
+        const releases = (await this.getAll()).filter(release => !release.draft && !release.prerelease);
+        const highest = this.highest(this.releaseVersions(releases));
+        let tag = highest && releases.find(release => semver_default().parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
+        if (!tag) {
+            const tags = (await this.getTags()).filter(tag => !semver_default().parse(this.stripTagPrefix(tag.name))?.prerelease.length);
+            const version = this.highest(this.tagVersions(tags));
+            tag = version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
+        }
+        if (!tag)
+            return undefined;
+        let object = (await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` })).data.object;
+        for (let depth = 0; object.type === 'tag' && depth < 16; depth++) {
+            object = (await this._octokit.git.getTag({ owner, repo, tag_sha: object.sha })).data.object;
+        }
+        if (object.type !== 'commit' || !commitSha.test(object.sha))
+            throw new Error(`Could not resolve release tag '${tag}' to a commit.`);
+        return object.sha;
     }
     async targetOf(tag) {
         const { owner, repo } = this._context.repo;
@@ -40299,6 +40866,12 @@ class Versions {
             this._logger.info(`A release already exists for commit '${pullRequest.merge_commit_sha}' - nothing will be released again.`);
             return VersionInfo.noReleaseBecause('already-released');
         }
+        return await this.nextVersionFor(bump);
+    }
+    async nextVersionFor(bump, targetCommitish) {
+        if (targetCommitish && await this._releases.existsForSha(targetCommitish)) {
+            return VersionInfo.noReleaseBecause('already-released');
+        }
         const latest = await this._releases.getLatestReleaseVersion();
         // Capture the predecessor before bumping - `semver.inc` mutates in place, so after the bump `latest`
         // would already be the new version.
@@ -40413,6 +40986,15 @@ const inputs = {
     get version() {
         return getInput('version').trim();
     },
+    get releaseWindow() {
+        const minutes = Number(getInput('release-window') || '0');
+        if (!Number.isFinite(minutes) || minutes < 0)
+            throw new Error('release-window must be a non-negative number of minutes.');
+        return minutes;
+    },
+    get hotfixLabels() {
+        return parseLabels(getInput('hotfix-labels'), 'hotfix');
+    },
     get releaseNotes() {
         return getInput('release-notes');
     },
@@ -40481,6 +41063,8 @@ const setOutputsFrom = (decision) => {
     setOutput('isolated-for-pull-request', decision.isIsolatedForPullRequest);
     setOutput('previous-version', decision.previousVersion);
     setOutput('reason', decision.reason);
+    if (decision.pullRequests)
+        setOutput('pull-requests', decision.pullRequests.join(','));
 };
 
 ;// CONCATENATED MODULE: ./Source/summary.ts
@@ -40499,7 +41083,8 @@ const summaryRowsFor = (decision) => [
     ['Tag', orDash(decision.tag)],
     ['Previous version', orDash(decision.previousVersion)],
     ['Prerelease', yesNo(decision.isPrerelease)],
-    ['Isolated for pull request', yesNo(decision.isIsolatedForPullRequest)]
+    ['Isolated for pull request', yesNo(decision.isIsolatedForPullRequest)],
+    ...(decision.pullRequests ? [['Pull requests', decision.pullRequests.map(number => `#${number}`).join(', ') || '—']] : [])
 ];
 /**
  * Writes the decision to the GitHub step summary, so anyone looking at the run can see at a glance what the
@@ -40534,14 +41119,17 @@ const writeSummary = async (decision, logger) => {
 
 
 
+
 const run = async () => {
     // GITHUB_API_URL is always set by the runner (to https://api.github.com on github.com, or the enterprise
     // host on GitHub Enterprise Server), so honoring it keeps the action working on both.
     const octokit = new dist_src_Octokit({ auth: inputs.gitHubToken || undefined, baseUrl: process.env.GITHUB_API_URL || undefined });
     const releases = new Releases(octokit, github_context, logger, inputs.tagPrefix);
-    const handleVersion = new HandleVersion(new PullRequests(octokit, github_context, logger), new Versions(releases, logger, inputs), new ReleaseDecisions(), inputs, github_context, logger);
+    const handleVersion = new HandleVersion(new PullRequests(octokit, github_context, logger), new Versions(releases, logger, inputs), new ReleaseDecisions(), inputs, github_context, logger, (inputs.releaseWindow ?? 0) > 0 ? new PendingPullRequests(octokit, releases, github_context, logger) : undefined);
     const decision = await handleVersion.run();
     setOutputsFrom(decision);
+    if (decision.failureMessage)
+        setFailed(decision.failureMessage);
     await writeSummary(decision, logger);
 };
 run().catch(ex => setFailed(ex instanceof Error ? ex : String(ex)));

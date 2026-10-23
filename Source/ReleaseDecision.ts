@@ -13,6 +13,12 @@ export type ReleaseDecision = {
      */
     shouldPublish: boolean;
 
+    /** Present for batched decisions; absent on the unchanged single-PR path. */
+    pullRequests?: number[];
+
+    /** A batch safety rejection that must fail the main step, not merely skip publication. */
+    failureMessage?: string;
+
     /**
      * Whether the post step should create a GitHub release. Publishing artifacts and cutting a GitHub release
      * are not the same thing - a prerelease publishes artifacts without a release.

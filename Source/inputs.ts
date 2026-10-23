@@ -19,6 +19,16 @@ export const inputs: IInputs = {
         return getInput('version').trim();
     },
 
+    get releaseWindow() {
+        const minutes = Number(getInput('release-window') || '0');
+        if (!Number.isFinite(minutes) || minutes < 0) throw new Error('release-window must be a non-negative number of minutes.');
+        return minutes;
+    },
+
+    get hotfixLabels() {
+        return parseLabels(getInput('hotfix-labels'), 'hotfix');
+    },
+
     get releaseNotes() {
         return getInput('release-notes');
     },
