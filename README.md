@@ -439,17 +439,22 @@ Before the window expires, `should-publish` is false with reason `batched`; an
 empty range (including an older, already covered event) reports `nothing-pending`.
 A PR labeled `hotfix` bypasses the wait, as does `workflow_dispatch` with an empty
 or `0.0.0` version. Both release **all** pending changes, not just the trigger PR.
-If a hotfix-triggered batch contains a major change, the run fails with reason
-`error`, naming the major PR. Run Publish manually to release everything,
-including that major. A real explicit version retains the existing override.
+If a hotfix-triggered batch contains a major change, only the hotfix PR's own
+merge run fails with reason `error`, naming the major PR. Other non-manual runs
+warn and keep the changes pending with reason `batched`. Run Publish manually to
+release everything, including that major. A real explicit version retains the
+existing override.
 
 The highest intent wins across PRs (`major` > `minor` > `patch`); multiple intents
 on a single PR are an error. Dependabot and `no-release` PRs are excluded, and
 revert pairs cancel out (a revert of a revert restores the original notes).
-Unlabeled PRs contribute notes but no bump; if none has an intent the reason is
-`no-label` and the changes stay pending. One PR keeps its body verbatim; several
-PRs merge Added, Changed, Fixed, Removed, Security and Deprecated sections,
-preserving whole bullets and their trailing issue references. The `pull-requests`
+Unlabeled PRs contribute notes but no bump, with a warning naming each PR; if none
+has an intent the reason is `no-label` and the changes stay pending. One PR keeps
+its body verbatim; several PRs combine their Summary sections or unheaded lead
+paragraphs into one initial Summary, then merge Added, Changed, Fixed, Removed,
+Security and Deprecated sections, preserving whole bullets and their trailing
+issue references. Reference-link definitions are kept once per label; a duplicate
+label keeps the first definition and produces a warning. The `pull-requests`
 output is a CSV of the included PR numbers, also shown in the step summary.
 
 History is read through the GitHub API, so a shallow checkout is sufficient. If

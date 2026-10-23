@@ -39992,24 +39992,28 @@ class AggregatedReleaseNotes {
     static merge(pullRequests, logger) {
         if (pullRequests.length === 1)
             return pullRequests[0].body ?? '';
-        const collected = new Map(this.sections.map(section => [section, []]));
+        const collected = new Map(['Summary', ...this.sections].map(section => [section, []]));
+        const references = new Map();
         for (const pullRequest of pullRequests) {
-            const sections = new Map(this.sections.map(section => [section, []]));
-            this.collect(pullRequest, sections, logger);
+            const sections = this.collect(pullRequest, references, logger);
             for (const [section, lines] of sections) {
                 const content = lines.join('\n').trim();
                 if (content)
                     collected.get(section)?.push(content);
             }
         }
+        if (pullRequests.length)
+            this.requireSections(collected);
         const merged = [...collected].filter(([, contents]) => contents.length)
             .map(([section, contents]) => `## ${section}\n\n${contents.join('\n\n')}`).join('\n\n');
-        if (pullRequests.length && !merged)
-            throw new Error('No release-note sections found for the pending pull requests.');
-        return ReleaseNotes.withoutComments(merged);
+        const definitions = [...references.values()].join('\n');
+        return ReleaseNotes.withoutComments([merged, definitions].filter(Boolean).join('\n\n'));
     }
-    static collect(pullRequest, collected, logger) {
-        let current;
+    static collect(pullRequest, references, logger) {
+        const collected = new Map(this.sections.map(section => [section, []]));
+        const summary = [];
+        collected.set('Summary', summary);
+        let current = summary;
         let fence;
         let inBullet = false;
         let previousBlank = false;
@@ -40020,37 +40024,71 @@ class AggregatedReleaseNotes {
             if (marker && (!fence || (marker[1][0] === fence[0] && marker[1].length >= fence.length))) {
                 fence = fence ? undefined : marker[1];
             }
-            const heading = !fence && !marker && line.match(/^##\s+(.+?)\s*#*\s*$/);
+            const outsideFence = !fence && !marker;
+            if (outsideFence && this.collectReference(line, references, pullRequest.number, logger)) {
+                inBullet = false;
+                continue;
+            }
+            const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);
             if (heading) {
                 current = collected.get(heading[1]);
                 if (!current && heading[1] !== 'Summary')
                     logger.warn(`PR #${pullRequest.number}: dropping unknown release-note section "${heading[1]}".`);
                 inBullet = false;
             }
+            else if (current === summary) {
+                summary.push(line);
+            }
             else if (current) {
-                if (fence || marker) {
-                    if (inBullet)
-                        current.push(line);
-                }
-                else if (!line.trim()) {
-                    current.push(line);
-                }
-                else if (/^###\s/.test(line)) {
-                    current.push(line);
-                    inBullet = false;
-                }
-                else if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(line)) {
-                    current.push(line);
-                    inBullet = true;
-                }
-                else if (inBullet && (/^(?: {2,}|\t)/.test(line) || !afterBlank)) {
-                    current.push(line);
-                }
-                else {
-                    inBullet = false;
-                }
+                inBullet = this.collectBulletLine(line, current, { inBullet, outsideFence, afterBlank });
             }
         }
+        return collected;
+    }
+    static requireSections(collected) {
+        if (!this.sections.some(section => collected.get(section)?.length)) {
+            throw new Error('No release-note sections found for the pending pull requests.');
+        }
+    }
+    static collectReference(line, references, number, logger) {
+        const reference = line.match(/^ {0,3}\[([^\]]+)\]:\s*\S.*$/);
+        if (!reference)
+            return false;
+        const label = reference[1].trim().replace(/\s+/g, ' ').toLowerCase();
+        if (references.has(label)) {
+            logger.warn(`PR #${number}: duplicate release-note reference label "${reference[1]}"; keeping the first definition.`);
+        }
+        else {
+            references.set(label, line);
+        }
+        return true;
+    }
+    static collectBulletLine(line, current, state) {
+        if (!state.outsideFence) {
+            if (state.inBullet)
+                current.push(line);
+            return state.inBullet;
+        }
+        if (!line.trim()) {
+            current.push(line);
+            return state.inBullet;
+        }
+        if (/^###\s/.test(line)) {
+            current.push(line);
+            return false;
+        }
+        if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(line)) {
+            current.push(line);
+            return true;
+        }
+        if (state.inBullet && this.isBulletContinuation(line, state.afterBlank)) {
+            current.push(line);
+            return true;
+        }
+        return false;
+    }
+    static isBulletContinuation(line, afterBlank) {
+        return /^(?: {2,}|\t)/.test(line) || !afterBlank;
     }
 }
 
@@ -40136,18 +40174,18 @@ class HandleVersion {
         const skip = (reason) => ({ ...nothingToRelease(reason), pullRequests });
         if (!included.length)
             return skip('nothing-pending');
+        this.warnForMissingLabels(included);
         const intents = included.flatMap(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs));
         const bump = ['major', 'minor', 'patch'].find(intent => intents.includes(intent));
         if (!bump)
             return skip('no-label');
         const manual = this._context.eventName === 'workflow_dispatch';
-        const hotfix = included.some(pullRequest => pullRequest.labels.some(label => (this._inputs.hotfixLabels ?? ['hotfix']).includes(label.name ?? '')));
+        const hotfix = included.some(pullRequest => this.isHotfix(pullRequest));
         const major = included.find(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs).includes('major'));
         if (hotfix && major && !manual) {
             const failureMessage = `A major change is pending (#${major.number}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
-            // Fail once, on the run the merge started. Scheduled ticks see the same pending range until someone
-            // releases it by hand, so failing there would turn every tick red without adding information.
-            if (this._context.eventName === 'schedule') {
+            // Only the hotfix's own merge run fails; later runs keep the same range pending with a warning.
+            if (!this.isHotfixMerge(included, eventPullRequest)) {
                 this._logger.warn(failureMessage);
                 return skip('batched');
             }
@@ -40174,6 +40212,21 @@ class HandleVersion {
             reason: 'release',
             pullRequests
         };
+    }
+    warnForMissingLabels(pullRequests) {
+        for (const pullRequest of pullRequests) {
+            if (!AggregatedReleaseNotes.intents(pullRequest, this._inputs).length) {
+                this._logger.warn(`PR #${pullRequest.number}: No release related labels associated with the pull request.`);
+            }
+        }
+    }
+    isHotfixMerge(included, eventPullRequest) {
+        const ownPullRequest = eventPullRequest ?? (this._context.eventName === 'push'
+            ? included.find(pullRequest => pullRequest.merge_commit_sha === this._context.sha) : undefined);
+        return ownPullRequest !== undefined && this.isHotfix(ownPullRequest);
+    }
+    isHotfix(pullRequest) {
+        return pullRequest.labels.some(label => (this._inputs.hotfixLabels ?? ['hotfix']).includes(label.name ?? ''));
     }
     windowElapsed(pullRequests) {
         const times = pullRequests.map(pullRequest => Date.parse(pullRequest.merged_at ?? ''));

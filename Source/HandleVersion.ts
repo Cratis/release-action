@@ -64,19 +64,18 @@ export class HandleVersion {
         const pullRequests = included.map(pullRequest => pullRequest.number);
         const skip = (reason: Parameters<typeof nothingToRelease>[0]) => ({ ...nothingToRelease(reason), pullRequests });
         if (!included.length) return skip('nothing-pending');
+        this.warnForMissingLabels(included);
         const intents = included.flatMap(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs));
         const bump = (['major', 'minor', 'patch'] as const).find(intent => intents.includes(intent));
         if (!bump) return skip('no-label');
 
         const manual = this._context.eventName === 'workflow_dispatch';
-        const hotfix = included.some(pullRequest => pullRequest.labels.some(label =>
-            (this._inputs.hotfixLabels ?? ['hotfix']).includes(label.name ?? '')));
+        const hotfix = included.some(pullRequest => this.isHotfix(pullRequest));
         const major = included.find(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs).includes('major'));
         if (hotfix && major && !manual) {
             const failureMessage = `A major change is pending (#${major.number}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
-            // Fail once, on the run the merge started. Scheduled ticks see the same pending range until someone
-            // releases it by hand, so failing there would turn every tick red without adding information.
-            if (this._context.eventName === 'schedule') {
+            // Only the hotfix's own merge run fails; later runs keep the same range pending with a warning.
+            if (!this.isHotfixMerge(included, eventPullRequest)) {
                 this._logger.warn(failureMessage);
                 return skip('batched');
             }
@@ -100,6 +99,24 @@ export class HandleVersion {
             reason: 'release',
             pullRequests
         };
+    }
+
+    private warnForMissingLabels(pullRequests: PullRequest[]): void {
+        for (const pullRequest of pullRequests) {
+            if (!AggregatedReleaseNotes.intents(pullRequest, this._inputs).length) {
+                this._logger.warn(`PR #${pullRequest.number}: No release related labels associated with the pull request.`);
+            }
+        }
+    }
+
+    private isHotfixMerge(included: PullRequest[], eventPullRequest: PullRequest | undefined): boolean {
+        const ownPullRequest = eventPullRequest ?? (this._context.eventName === 'push'
+            ? included.find(pullRequest => pullRequest.merge_commit_sha === this._context.sha) : undefined);
+        return ownPullRequest !== undefined && this.isHotfix(ownPullRequest);
+    }
+
+    private isHotfix(pullRequest: PullRequest): boolean {
+        return pullRequest.labels.some(label => (this._inputs.hotfixLabels ?? ['hotfix']).includes(label.name ?? ''));
     }
 
     private windowElapsed(pullRequests: PullRequest[]): boolean {
