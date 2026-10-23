@@ -35,7 +35,7 @@ describe('when merging several release descriptions', () => {
         body.should.include('### APIs\n\n- New API. (#3)');
         body.should.not.include('Sign-off');
         body.should.not.include('secret');
-        body.should.not.include('Summary prose');
+        body.should.include('## Summary\n\nSummary prose.');
         body.indexOf('## Added').should.be.lessThan(body.indexOf('## Changed'));
         body.indexOf('## Changed').should.be.lessThan(body.indexOf('## Fixed'));
         logger.messages.join('\n').should.include('unknown release-note section');

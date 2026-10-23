@@ -26,7 +26,7 @@ describe('when a hotfix release is blocked by a pending major', () => {
     it('should call core.setFailed with the major PR and the manual recovery', async () => {
         Object.assign(state.inputs, noInputs, { releaseWindow: 60 });
         state.pullRequests = [aPullRequest({ number: 1, labels: [{ name: 'major' }] }),
-            aPullRequest({ number: 2, labels: [{ name: 'patch' }, { name: 'hotfix' }] })];
+            aPullRequest({ number: 2, merge_commit_sha: 'upper', labels: [{ name: 'patch' }, { name: 'hotfix' }] })];
         await import('../../../main');
         await vi.waitFor(() => vi.mocked(setFailed).mock.calls.should.deep.equal([[
             'A major change is pending (#1); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.']]));

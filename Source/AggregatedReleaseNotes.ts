@@ -49,55 +49,101 @@ export class AggregatedReleaseNotes {
 
     static merge(pullRequests: PullRequest[], logger: ILogger): string {
         if (pullRequests.length === 1) return pullRequests[0].body ?? '';
-        const collected = new Map(this.sections.map(section => [section, [] as string[]]));
+        const collected = new Map(['Summary', ...this.sections].map(section => [section, [] as string[]]));
+        const references = new Map<string, string>();
         for (const pullRequest of pullRequests) {
-            const sections = new Map(this.sections.map(section => [section, [] as string[]]));
-            this.collect(pullRequest, sections, logger);
+            const sections = this.collect(pullRequest, references, logger);
             for (const [section, lines] of sections) {
                 const content = lines.join('\n').trim();
                 if (content) collected.get(section)?.push(content);
             }
         }
+        if (pullRequests.length) this.requireSections(collected);
         const merged = [...collected].filter(([, contents]) => contents.length)
             .map(([section, contents]) => `## ${section}\n\n${contents.join('\n\n')}`).join('\n\n');
-        if (pullRequests.length && !merged) throw new Error('No release-note sections found for the pending pull requests.');
-        return ReleaseNotes.withoutComments(merged);
+        const definitions = [...references.values()].join('\n');
+        return ReleaseNotes.withoutComments([merged, definitions].filter(Boolean).join('\n\n'));
     }
 
-    private static collect(pullRequest: PullRequest, collected: Map<string, string[]>, logger: ILogger): void {
-        let current: string[] | undefined;
+    private static collect(pullRequest: PullRequest, references: Map<string, string>, logger: ILogger): Map<string, string[]> {
+        const collected = new Map(this.sections.map(section => [section, [] as string[]]));
+        const summary: string[] = [];
+        collected.set('Summary', summary);
+        let current: string[] | undefined = summary;
         let fence: string | undefined;
         let inBullet = false;
         let previousBlank = false;
         for (const line of ReleaseNotes.withoutComments(pullRequest.body ?? '').split('\n')) {
-            const afterBlank = previousBlank;
+            const afterBlank: boolean = previousBlank;
             previousBlank = !line.trim();
             const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
             if (marker && (!fence || (marker[1][0] === fence[0] && marker[1].length >= fence.length))) {
                 fence = fence ? undefined : marker[1];
             }
-            const heading = !fence && !marker && line.match(/^##\s+(.+?)\s*#*\s*$/);
+            const outsideFence = !fence && !marker;
+            if (outsideFence && this.collectReference(line, references, pullRequest.number, logger)) {
+                previousBlank = afterBlank;
+                continue;
+            }
+            const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);
             if (heading) {
                 current = collected.get(heading[1]);
                 if (!current && heading[1] !== 'Summary') logger.warn(`PR #${pullRequest.number}: dropping unknown release-note section "${heading[1]}".`);
                 inBullet = false;
+            } else if (current === summary) {
+                summary.push(line);
             } else if (current) {
-                if (fence || marker) {
-                    if (inBullet) current.push(line);
-                } else if (!line.trim()) {
-                    current.push(line);
-                } else if (/^###\s/.test(line)) {
-                    current.push(line);
-                    inBullet = false;
-                } else if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(line)) {
-                    current.push(line);
-                    inBullet = true;
-                } else if (inBullet && (/^(?: {2,}|\t)/.test(line) || !afterBlank)) {
-                    current.push(line);
-                } else {
-                    inBullet = false;
-                }
+                inBullet = this.collectBulletLine(line, current, { inBullet, outsideFence, afterBlank });
             }
         }
+        return collected;
+    }
+
+    private static requireSections(collected: Map<string, string[]>): void {
+        if (!this.sections.some(section => collected.get(section)?.length)) {
+            throw new Error('No release-note sections found for the pending pull requests.');
+        }
+    }
+
+    private static collectReference(line: string, references: Map<string, string>, number: number, logger: ILogger): boolean {
+        const reference = line.match(/^ {0,3}\[([^\]]+)\]:\s*\S.*$/);
+        if (!reference) return false;
+        const label = reference[1].trim().replace(/\s+/g, ' ').toLowerCase();
+        if (references.has(label)) {
+            logger.warn(`PR #${number}: duplicate release-note reference label "${reference[1]}"; keeping the first definition.`);
+        } else {
+            references.set(label, line);
+        }
+        return true;
+    }
+
+    private static collectBulletLine(line: string, current: string[], state: {
+        inBullet: boolean; outsideFence: boolean; afterBlank: boolean;
+    }): boolean {
+        if (!state.outsideFence) {
+            if (state.inBullet) current.push(line);
+            return state.inBullet;
+        }
+        if (!line.trim()) {
+            current.push(line);
+            return state.inBullet;
+        }
+        if (/^###\s/.test(line)) {
+            current.push(line);
+            return false;
+        }
+        if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(line)) {
+            current.push(line);
+            return true;
+        }
+        if (state.inBullet && this.isBulletContinuation(line, state.afterBlank)) {
+            current.push(line);
+            return true;
+        }
+        return false;
+    }
+
+    private static isBulletContinuation(line: string, afterBlank: boolean): boolean {
+        return /^(?: {2,}|\t)/.test(line) || !afterBlank;
     }
 }

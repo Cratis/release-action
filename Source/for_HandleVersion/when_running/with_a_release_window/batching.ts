@@ -60,7 +60,7 @@ describe('when a hotfix bypasses the window', () => {
 
 describe('when a hotfix merge would include a major change', () => {
     beforeEach(async () => {
-        context.context = { ...context.context, eventName: 'push' };
+        context.context = { ...context.context, eventName: 'push', sha: 'merge-2' };
         await context.run([context.merged(1, ['major'], 100), context.merged(2, ['patch', 'hotfix'])]);
     });
     it('should reject publication and tell the main step to fail with the major PR and recovery', () => {
