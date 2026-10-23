@@ -58,14 +58,38 @@ describe('when a hotfix bypasses the window', () => {
     });
 });
 
-describe('when a hotfix would include a major change', () => {
-    beforeEach(async () => context.run([context.merged(1, ['major'], 100), context.merged(2, ['patch', 'hotfix'])]));
+describe('when a hotfix merge would include a major change', () => {
+    beforeEach(async () => {
+        context.context = { ...context.context, eventName: 'push' };
+        await context.run([context.merged(1, ['major'], 100), context.merged(2, ['patch', 'hotfix'])]);
+    });
     it('should reject publication and tell the main step to fail with the major PR and recovery', () => {
         context.result.reason.should.equal('error');
         context.result.shouldPublish.should.be.false;
         context.result.shouldCreateRelease.should.be.false;
         context.result.should.have.property('failureMessage').that.equal('A major change is pending (#1); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.');
         context.logger.messages.should.include(context.result.failureMessage);
+        context.releases.getLatestReleaseVersion.called.should.be.false;
+    });
+});
+
+describe('when scheduled ticks find a hotfix that would include a major change', () => {
+    const results: unknown[] = [];
+    beforeEach(async () => {
+        results.length = 0;
+        for (let tick = 0; tick < 3; tick++) {
+            await context.run([context.merged(1, ['major'], 100), context.merged(2, ['patch', 'hotfix'])]);
+            results.push(context.result);
+        }
+    });
+    it('should keep the batch pending on every tick without failing the job', () => {
+        for (const result of results as Array<Record<string, unknown>>) {
+            result.should.have.property('reason').that.equal('batched');
+            result.should.have.property('shouldPublish').that.equal(false);
+            result.should.not.have.property('failureMessage');
+            result.should.have.property('pullRequests').that.deep.equal([1, 2]);
+        }
+        context.logger.messages.should.include('A major change is pending (#1); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.');
         context.releases.getLatestReleaseVersion.called.should.be.false;
     });
 });

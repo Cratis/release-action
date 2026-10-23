@@ -40145,6 +40145,12 @@ class HandleVersion {
         const major = included.find(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs).includes('major'));
         if (hotfix && major && !manual) {
             const failureMessage = `A major change is pending (#${major.number}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
+            // Fail once, on the run the merge started. Scheduled ticks see the same pending range until someone
+            // releases it by hand, so failing there would turn every tick red without adding information.
+            if (this._context.eventName === 'schedule') {
+                this._logger.warn(failureMessage);
+                return skip('batched');
+            }
             this._logger.error(failureMessage);
             return { ...skip('error'), failureMessage };
         }
