@@ -40026,7 +40026,7 @@ class AggregatedReleaseNotes {
             }
             const outsideFence = !fence && !marker;
             if (outsideFence && this.collectReference(line, references, pullRequest.number, logger)) {
-                inBullet = false;
+                previousBlank = afterBlank;
                 continue;
             }
             const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);

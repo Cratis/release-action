@@ -74,7 +74,7 @@ export class AggregatedReleaseNotes {
         let inBullet = false;
         let previousBlank = false;
         for (const line of ReleaseNotes.withoutComments(pullRequest.body ?? '').split('\n')) {
-            const afterBlank = previousBlank;
+            const afterBlank: boolean = previousBlank;
             previousBlank = !line.trim();
             const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
             if (marker && (!fence || (marker[1][0] === fence[0] && marker[1].length >= fence.length))) {
@@ -82,7 +82,7 @@ export class AggregatedReleaseNotes {
             }
             const outsideFence = !fence && !marker;
             if (outsideFence && this.collectReference(line, references, pullRequest.number, logger)) {
-                inBullet = false;
+                previousBlank = afterBlank;
                 continue;
             }
             const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);

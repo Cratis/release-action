@@ -52,6 +52,14 @@ describe('with reference definitions after blank lines', () => {
         body.should.not.include('https://example.com/second');
         warn.mock.calls.should.deep.equal([['PR #2: duplicate release-note reference label "the   GUIDE"; keeping the first definition.']]);
     });
+    it('should keep later paragraphs of a list item that contains a definition', () => {
+        const body = AggregatedReleaseNotes.merge([
+            pull(1, '## Fixed\n\n- Read [guide].\n\n  [guide]: https://example.com/guide\n\n  Important follow-up. (#123)'),
+            pull(2, '## Fixed\n\n- Second.')
+        ], logger);
+        body.should.include('  Important follow-up. (#123)');
+        body.should.include('[guide]: https://example.com/guide');
+    });
     it('should preserve definitions used in summaries but not collect fenced examples or hidden definitions', () => {
         const body = AggregatedReleaseNotes.merge([
             pull(1, 'Read [guide].\n\n[guide]: https://example.com/guide\n\n## Fixed\n\n- Example:\n  ```md\n  [guide]: https://example.com/example\n  ```\n<!-- [hidden]: https://example.com/hidden -->'),
