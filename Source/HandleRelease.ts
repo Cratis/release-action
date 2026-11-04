@@ -33,7 +33,8 @@ export class HandleRelease {
         }
 
         if (!decision.shouldCreateRelease) {
-            this._logger.info('The main step decided that no GitHub release should be created for this run.');
+            const reason = decision.reason ? ` (reason: ${decision.reason})` : '';
+            this._logger.info(`The main step decided that no GitHub release should be created for this run${reason}.`);
             return;
         }
 

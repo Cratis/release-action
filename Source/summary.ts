@@ -12,6 +12,7 @@ const orDash = (value: string): string => (value !== '' ? value : '—');
  */
 export const summaryRowsFor = (decision: ReleaseDecision): [string, string][] => [
     ['Reason', decision.reason],
+    ...(decision.explanation ? [['Explanation', decision.explanation] as [string, string]] : []),
     ['Should publish', yesNo(decision.shouldPublish)],
     ['Create release', yesNo(decision.shouldCreateRelease)],
     ['Version', orDash(decision.version)],

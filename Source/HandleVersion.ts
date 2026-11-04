@@ -62,12 +62,16 @@ export class HandleVersion {
         const { owner, repo } = this._context.repo;
         const included = AggregatedReleaseNotes.included(pending.pullRequests, `${owner}/${repo}`, this._inputs);
         const pullRequests = included.map(pullRequest => pullRequest.number);
-        const skip = (reason: Parameters<typeof nothingToRelease>[0]) => ({ ...nothingToRelease(reason), pullRequests });
-        if (!included.length) return skip('nothing-pending');
+        const pendingNumbers = pullRequests.map(number => `#${number}`).join(', ');
+        const skip = (reason: Parameters<typeof nothingToRelease>[0], explanation: string): ReleaseDecision => {
+            this._logger.info(explanation);
+            return { ...nothingToRelease(reason), pullRequests, explanation };
+        };
+        if (!included.length) return skip('nothing-pending', 'Nothing is pending for release since the latest stable release tag.');
         this.warnForMissingLabels(included);
         const intents = included.flatMap(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs));
         const bump = (['major', 'minor', 'patch'] as const).find(intent => intents.includes(intent));
-        if (!bump) return skip('no-label');
+        if (!bump) return skip('no-label', `Pending PRs ${pendingNumbers}: none carries a release intent - nothing will be released.`);
 
         const manual = this._context.eventName === 'workflow_dispatch';
         const hotfix = included.some(pullRequest => this.isHotfix(pullRequest));
@@ -77,15 +81,23 @@ export class HandleVersion {
             // Only the hotfix's own merge run fails; later runs keep the same range pending with a warning.
             if (!this.isHotfixMerge(included, eventPullRequest)) {
                 this._logger.warn(failureMessage);
-                return skip('batched');
+                return skip('batched', failureMessage);
             }
             this._logger.error(failureMessage);
-            return { ...skip('error'), failureMessage };
+            return { ...skip('error', failureMessage), failureMessage };
         }
-        if (!manual && !hotfix && !this.windowElapsed(included)) return skip('batched');
+        if (!manual && !hotfix && !this.windowElapsed(included)) {
+            return skip('batched', this.waitingForWindow(included, pendingNumbers));
+        }
         if (!this._versions.nextVersionFor) throw new Error('Batch version selection is unavailable.');
         const versionInfo = await this._versions.nextVersionFor(bump, upper);
-        if (!versionInfo.version) return skip(versionInfo.reason ?? 'no-label');
+        if (!versionInfo.version) {
+            const reason = versionInfo.reason ?? 'no-label';
+            const explanation = reason === 'already-released'
+                ? `A release already exists for commit '${upper}' - pending PRs ${pendingNumbers} will not be released again.`
+                : `Pending PRs ${pendingNumbers} will not be released (reason: ${reason}).`;
+            return skip(reason, explanation);
+        }
         return {
             shouldPublish: true,
             shouldCreateRelease: true,
@@ -123,6 +135,15 @@ export class HandleVersion {
         const times = pullRequests.map(pullRequest => Date.parse(pullRequest.merged_at ?? ''));
         if (times.some(time => !Number.isFinite(time))) throw new Error('A pending pull request has no valid merge timestamp.');
         return Date.now() - Math.min(...times) >= (this._inputs.releaseWindow ?? 0) * 60_000;
+    }
+
+    private waitingForWindow(pullRequests: PullRequest[], pendingNumbers: string): string {
+        const oldest = Math.min(...pullRequests.map(pullRequest => Date.parse(pullRequest.merged_at ?? '')));
+        const window = this._inputs.releaseWindow ?? 0;
+        const elapses = new Date(oldest + window * 60_000).toISOString();
+        return `Pending PRs ${pendingNumbers}: oldest merge ${new Date(oldest).toISOString()}; the ${window}-minute release window elapses at ${elapses}. `
+            + 'A scheduled Publish run after that time releases them, or run workflow_dispatch with version 0.0.0 (or empty) to release them now. '
+            + 'A hotfix label bypasses the window.';
     }
 
     private decideFromExplicitVersion(version: string): ReleaseDecision {
