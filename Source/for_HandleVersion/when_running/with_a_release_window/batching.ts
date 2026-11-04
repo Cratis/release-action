@@ -23,15 +23,27 @@ describe('when nothing is pending', () => {
         context.result.should.have.property('pullRequests').that.deep.equal([]);
         context.record.calledOnceWithExactly(context.result).should.be.true;
     });
+    it('should explain the empty range in the log and recorded decision', () => {
+        const explanation = 'Nothing is pending for release since the latest stable release tag.';
+        context.logger.messages.should.include(explanation);
+        context.result.should.have.property('explanation', explanation);
+    });
 });
 
 describe('when the release window has not elapsed', () => {
-    beforeEach(async () => context.run([context.merged(1), context.merged(2)]));
+    beforeEach(async () => context.run([context.merged(1), context.merged(2, ['patch'], 5)]));
     it('should retain all pending changes without calculating a version', () => {
         context.result.reason.should.equal('batched');
         context.result.shouldPublish.should.be.false;
         context.result.should.have.property('pullRequests').that.deep.equal([1, 2]);
         context.releases.getLatestReleaseVersion.called.should.be.false;
+    });
+    it('should explain the pending PRs, oldest merge, window and recovery in the log and decision', () => {
+        const explanation = 'Pending PRs #1, #2: oldest merge 2026-06-01T11:50:00.000Z; the 60-minute release window elapses at 2026-06-01T12:50:00.000Z. '
+            + 'A scheduled Publish run after that time releases them, or run workflow_dispatch with version 0.0.0 (or empty) to release them now. '
+            + 'A hotfix label bypasses the window.';
+        context.logger.messages.should.include(explanation);
+        context.result.should.have.property('explanation', explanation);
     });
 });
 
@@ -88,6 +100,7 @@ describe('when scheduled ticks find a hotfix that would include a major change',
             result.should.have.property('shouldPublish').that.equal(false);
             result.should.not.have.property('failureMessage');
             result.should.have.property('pullRequests').that.deep.equal([1, 2]);
+            result.should.have.property('explanation').that.equal('A major change is pending (#1); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.');
         }
         context.logger.messages.should.include('A major change is pending (#1); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.');
         context.releases.getLatestReleaseVersion.called.should.be.false;
@@ -115,10 +128,15 @@ describe('when all pending changes have been reverted', () => {
 });
 
 describe('when pending PRs have no release intent', () => {
-    beforeEach(async () => context.run([context.merged(1, [], 120)]));
+    beforeEach(async () => context.run([context.merged(1, [], 120), context.merged(2, [], 100)]));
     it('should retain them with no-label', () => {
         context.result.reason.should.equal('no-label');
-        context.result.should.have.property('pullRequests').that.deep.equal([1]);
+        context.result.should.have.property('pullRequests').that.deep.equal([1, 2]);
+    });
+    it('should name every pending PR without a release intent in the log and decision', () => {
+        const explanation = 'Pending PRs #1, #2: none carries a release intent - nothing will be released.';
+        context.logger.messages.should.include(explanation);
+        context.result.should.have.property('explanation', explanation);
     });
 });
 
@@ -136,6 +154,11 @@ describe('when the batch target already has a release', () => {
         await context.run([context.merged(1, ['patch'], 120)]);
     });
     it('should never publish a second version', () => context.result.reason.should.equal('already-released'));
+    it('should explain that the target commit already has a release', () => {
+        const explanation = "A release already exists for commit 'upper' - pending PRs #1 will not be released again.";
+        context.logger.messages.should.include(explanation);
+        context.result.should.have.property('explanation', explanation);
+    });
 });
 
 describe('when a PR event has an ephemeral context SHA', () => {

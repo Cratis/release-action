@@ -445,6 +445,11 @@ warn and keep the changes pending with reason `batched`. Run Publish manually to
 release everything, including that major. A real explicit version retains the
 existing override.
 
+Skipped batched decisions explain why in the main-step log and the step summary;
+when waiting, they name the pending PRs and show the window's UTC expiry time.
+To release pending changes now, run Publish with `workflow_dispatch` and leave the
+version empty or set it to `0.0.0`.
+
 The highest intent wins across PRs (`major` > `minor` > `patch`); multiple intents
 on a single PR are an error. Dependabot and `no-release` PRs are excluded, and
 revert pairs cancel out (a revert of a revert restores the original notes).

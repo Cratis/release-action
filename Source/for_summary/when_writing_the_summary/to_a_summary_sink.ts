@@ -6,6 +6,7 @@ import { afterAll, beforeEach, describe, it } from 'vitest';
 import { RecordingLogger } from '../../specs/RecordingLogger';
 import { writeSummary } from '../../summary';
 import { aDecisionToRelease } from '../../for_HandleRelease/given/a_recorded_decision';
+import { nothingToRelease } from '../../ReleaseDecision';
 
 // `core.summary` caches its file path on first write, so a single stable path is used for the whole suite and
 // truncated before each test.
@@ -34,5 +35,13 @@ describe('when writing the summary to a summary sink', () => {
 
     it('should write the version into the table', () => {
         written.should.contain('1.2.4');
+    });
+
+    it('should write a skipped batch explanation into the summary sink', async () => {
+        const explanation = 'Pending PRs #1, #2: the release window elapses at 2026-06-01T12:50:00.000Z.';
+        await writeSummary({ ...nothingToRelease('batched'), pullRequests: [1, 2], explanation }, new RecordingLogger());
+        const skipped = readFileSync(summaryFile, 'utf8');
+        skipped.should.contain('Explanation');
+        skipped.should.contain(explanation);
     });
 });

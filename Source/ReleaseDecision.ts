@@ -16,6 +16,9 @@ export type ReleaseDecision = {
     /** Present for batched decisions; absent on the unchanged single-PR path. */
     pullRequests?: number[];
 
+    /** Human-readable context for a skipped batched decision, shown in the log and step summary. */
+    explanation?: string;
+
     /** A batch safety rejection that must fail the main step, not merely skip publication. */
     failureMessage?: string;
 
