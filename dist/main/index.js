@@ -39640,6 +39640,8 @@ const isClosedWithoutBeingMerged = (pullRequest) => pullRequest.state === 'close
 const isFromDependabot = (pullRequest) => (pullRequest.user?.login ?? '').toLowerCase().includes('dependabot');
 
 ;// CONCATENATED MODULE: ./Source/ReleaseNotes.ts
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 /**
  * Turns the notes a release is cut with - a pull request description, or the notes a manual run was given - into
  * the body that is published.
@@ -39701,59 +39703,59 @@ class ReleaseNotes {
      * The ranges of the notes - start inclusive, end exclusive - one reading of them removes.
      */
     static removalsIn(notes, outdentedFenceCloses) {
-        const removals = [];
-        let published = '';
-        let index = 0;
-        // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
-        // full of unclosed openings slow to read.
-        let unclosedFrom = notes.length;
-        // The reading only moves forward, so the start of the current line is found by moving forward with it -
-        // searching back from every code span would make a long line full of them slow to read.
-        let lineStart = 0;
-        let lineScannedTo = 0;
-        // A fence that found no closing line before the end of the notes will not find one from further down either;
-        // remembering that keeps notes full of stray fences from being read again and again to the end.
-        const unclosedFences = new Set();
-        const lineStartOf = (position) => {
-            for (; lineScannedTo < position; lineScannedTo++) {
-                if (notes[lineScannedTo] === '\n')
-                    lineStart = lineScannedTo + 1;
-            }
-            return lineStart;
+        const reading = {
+            notes, index: 0, published: '', unclosedFrom: notes.length, removals: [], lineStart: 0, lineScannedTo: 0,
+            unclosedFences: new Set(), outdentedFenceCloses
         };
-        while (index < notes.length) {
-            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses);
-            if (end > index) {
-                published += notes.slice(index, end);
-                index = end;
+        while (reading.index < notes.length) {
+            const end = ReleaseNotes.endOfCodeAt(reading);
+            if (end > reading.index) {
+                reading.published += notes.slice(reading.index, end);
+                reading.index = end;
                 continue;
             }
-            if (index < unclosedFrom && notes.startsWith(ReleaseNotes.commentStart, index)) {
-                const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
-                if (close === -1) {
-                    unclosedFrom = index;
-                }
-                else {
-                    const removed = ReleaseNotes.removeComment(notes, published, close + ReleaseNotes.commentEnd.length);
-                    removals.push([removed.withItsLines ? lineStartOf(index) : index, removed.next]);
-                    published = removed.published;
-                    index = removed.next;
-                    continue;
-                }
-            }
-            published += notes[index];
-            index++;
+            if (ReleaseNotes.removeCommentAt(reading))
+                continue;
+            reading.published += notes[reading.index];
+            reading.index++;
         }
-        return removals;
+        return reading.removals;
+    }
+    static removeCommentAt(reading) {
+        const { notes, index } = reading;
+        if (index >= reading.unclosedFrom || !notes.startsWith(ReleaseNotes.commentStart, index))
+            return false;
+        const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
+        // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
+        // full of unclosed openings slow to read.
+        if (close === -1) {
+            reading.unclosedFrom = index;
+            return false;
+        }
+        const removed = ReleaseNotes.removeComment(notes, reading.published, close + ReleaseNotes.commentEnd.length);
+        reading.removals.push([removed.withItsLines ? ReleaseNotes.lineStartOf(reading, index) : index, removed.next]);
+        reading.published = removed.published;
+        reading.index = removed.next;
+        return true;
+    }
+    // The reading only moves forward, so the start of the current line is found by moving forward with it -
+    // searching back from every code span would make a long line full of them slow to read.
+    static lineStartOf(reading, position) {
+        for (; reading.lineScannedTo < position; reading.lineScannedTo++) {
+            if (reading.notes[reading.lineScannedTo] === '\n')
+                reading.lineStart = reading.lineScannedTo + 1;
+        }
+        return reading.lineStart;
     }
     /**
      * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
      * must be kept verbatim starts there.
      */
-    static endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses) {
+    static endOfCodeAt(reading) {
+        const { notes, index } = reading;
         const atLineStart = index === 0 || notes[index - 1] === '\n';
         if (atLineStart) {
-            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences, outdentedFenceCloses);
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(reading);
             if (fenceEnd !== undefined) {
                 return fenceEnd;
             }
@@ -39763,7 +39765,7 @@ class ReleaseNotes {
             return index + 2;
         }
         if (notes[index] === '`') {
-            return ReleaseNotes.endOfCodeSpan(notes, index, lineStartOf(index));
+            return ReleaseNotes.endOfCodeSpan(notes, index, ReleaseNotes.lineStartOf(reading, index));
         }
         return index;
     }
@@ -39795,7 +39797,20 @@ class ReleaseNotes {
      * fence is read as plain text instead, its own backticks included. The worst that costs is a comment shown
      * inside that broken block.
      */
-    static endOfFencedBlock(notes, lineStart, unclosedFences, outdentedFenceCloses) {
+    static endOfFencedBlock(reading) {
+        const opening = ReleaseNotes.openingFence(reading.notes, reading.index);
+        if (!opening)
+            return undefined;
+        // A fence that found no closing line will not find one from further down either.
+        if (reading.unclosedFences.has(opening.kind))
+            return opening.afterOpening;
+        const end = ReleaseNotes.findFenceEnd(reading.notes, opening, reading.outdentedFenceCloses);
+        if (end !== undefined)
+            return end;
+        reading.unclosedFences.add(opening.kind);
+        return opening.afterOpening;
+    }
+    static openingFence(notes, lineStart) {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
         const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
         let rest = ReleaseNotes.lineAt(notes, quoted.end, firstLineEnd);
@@ -39813,34 +39828,35 @@ class ReleaseNotes {
         // An indented fence sits in a list item - opened on the marker's line or on a continuation line of the
         // item - and the item's content starts where the fence does.
         const contentColumn = ReleaseNotes.columnsOf(markers + opening[1]);
-        const kind = `${fence}:${quoted.count}:${contentColumn}`;
-        if (unclosedFences.has(kind)) {
-            return afterOpeningFence;
-        }
-        const closing = new RegExp(`^([ \\t]*)${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
-        let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
+        return {
+            firstLineEnd, depth: quoted.count, contentColumn, afterOpening: afterOpeningFence,
+            kind: `${fence}:${quoted.count}:${contentColumn}`,
+            closing: new RegExp(`^([ \\t]*)${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`)
+        };
+    }
+    static findFenceEnd(notes, opening, outdentedFenceCloses) {
+        let line = ReleaseNotes.startOfNextLine(notes, opening.firstLineEnd);
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
-            const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
-            if (inside.count < quoted.count) {
+            const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, opening.depth);
+            if (inside.count < opening.depth)
                 return line;
-            }
             const text = ReleaseNotes.lineAt(notes, inside.end, lineEnd);
-            const closed = closing.exec(text);
-            if (closed) {
-                const columns = ReleaseNotes.columnsOf(closed[1]);
-                const outdented = columns < contentColumn;
-                if (columns <= contentColumn + 3 && (!outdented || outdentedFenceCloses)) {
-                    return ReleaseNotes.startOfNextLine(notes, lineEnd);
-                }
+            if (ReleaseNotes.closesFence(text, opening, outdentedFenceCloses)) {
+                return ReleaseNotes.startOfNextLine(notes, lineEnd);
             }
-            if (ReleaseNotes.leavesListItem(text, contentColumn)) {
+            if (ReleaseNotes.leavesListItem(text, opening.contentColumn))
                 return line;
-            }
             line = ReleaseNotes.startOfNextLine(notes, lineEnd);
         }
-        unclosedFences.add(kind);
-        return afterOpeningFence;
+        return undefined;
+    }
+    static closesFence(text, opening, outdentedFenceCloses) {
+        const closed = opening.closing.exec(text);
+        if (!closed)
+            return false;
+        const columns = ReleaseNotes.columnsOf(closed[1]);
+        return columns <= opening.contentColumn + 3 && (columns >= opening.contentColumn || outdentedFenceCloses);
     }
     /**
      * Whether a line leaves the list item holding a fence - a line that is not blank and is indented less than the
@@ -39911,21 +39927,29 @@ class ReleaseNotes {
         let count = 0;
         let end = lineStart;
         while (count < maximum) {
-            let position = end;
-            while (position < lineEnd && position - end < 3 && notes[position] === ' ') {
-                position++;
-            }
+            let position = ReleaseNotes.afterQuoteIndentation(notes, end, lineEnd);
             if (position >= lineEnd || notes[position] !== '>') {
                 break;
             }
             position++;
-            if (position < lineEnd && (notes[position] === ' ' || notes[position] === '\t')) {
+            if (ReleaseNotes.hasQuoteWhitespace(notes, position, lineEnd))
                 position++;
-            }
             count++;
             end = position;
         }
         return { count, end };
+    }
+    static afterQuoteIndentation(notes, start, lineEnd) {
+        let position = start;
+        while (position < lineEnd && notes[position] === ' ') {
+            if (position - start >= 3)
+                break;
+            position++;
+        }
+        return position;
+    }
+    static hasQuoteWhitespace(notes, position, lineEnd) {
+        return position < lineEnd && (notes[position] === ' ' || notes[position] === '\t');
     }
     /**
      * The text of a line, without the carriage return of a Windows line ending.
@@ -39977,10 +40001,7 @@ class AggregatedReleaseNotes {
         const effects = new Map();
         const totals = new Map();
         for (const [index, pullRequest] of pullRequests.entries()) {
-            const reference = (pullRequest.body ?? '').match(/^Reverts ([\w.-]+\/[\w.-]+)#(\d+)\.?\s*$/m);
-            const revertedSha = (pullRequest.body ?? '').match(/This reverts commit ([0-9a-f]{40})\b/i)?.[1];
-            const original = pullRequests.slice(0, index).find(candidate => (reference && reference[1].toLowerCase() === repository.toLowerCase() && candidate.number === Number(reference[2])) ||
-                (revertedSha && candidate.merge_commit_sha === revertedSha));
+            const original = this.findReverted(pullRequests.slice(0, index), pullRequest, repository);
             const prior = original && effects.get(original.number);
             const effect = prior ? { root: prior.root, sign: -prior.sign } : { root: pullRequest.number, sign: 1 };
             effects.set(pullRequest.number, effect);
@@ -39988,6 +40009,12 @@ class AggregatedReleaseNotes {
         }
         return pullRequests.filter(pullRequest => effects.get(pullRequest.number)?.root === pullRequest.number &&
             (totals.get(pullRequest.number) ?? 0) > 0);
+    }
+    static findReverted(prior, pullRequest, repository) {
+        const reference = (pullRequest.body ?? '').match(/^Reverts ([\w.-]+\/[\w.-]+)#(\d+)\.?\s*$/m);
+        const revertedSha = (pullRequest.body ?? '').match(/This reverts commit ([0-9a-f]{40})\b/i)?.[1];
+        return prior.find(candidate => (reference && reference[1].toLowerCase() === repository.toLowerCase() && candidate.number === Number(reference[2])) ||
+            (revertedSha && candidate.merge_commit_sha === revertedSha));
     }
     static merge(pullRequests, logger) {
         if (pullRequests.length === 1)
@@ -40013,37 +40040,49 @@ class AggregatedReleaseNotes {
         const collected = new Map(this.sections.map(section => [section, []]));
         const summary = [];
         collected.set('Summary', summary);
-        let current = summary;
-        let fence;
-        let inBullet = false;
-        let previousBlank = false;
+        const state = {
+            sections: collected, summary, current: summary, fence: undefined, inBullet: false, previousBlank: false,
+            references, number: pullRequest.number, logger
+        };
         for (const line of ReleaseNotes.withoutComments(pullRequest.body ?? '').split('\n')) {
-            const afterBlank = previousBlank;
-            previousBlank = !line.trim();
-            const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
-            if (marker && (!fence || (marker[1][0] === fence[0] && marker[1].length >= fence.length))) {
-                fence = fence ? undefined : marker[1];
-            }
-            const outsideFence = !fence && !marker;
-            if (outsideFence && this.collectReference(line, references, pullRequest.number, logger)) {
-                previousBlank = afterBlank;
-                continue;
-            }
-            const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);
-            if (heading) {
-                current = collected.get(heading[1]);
-                if (!current && heading[1] !== 'Summary')
-                    logger.warn(`PR #${pullRequest.number}: dropping unknown release-note section "${heading[1]}".`);
-                inBullet = false;
-            }
-            else if (current === summary) {
-                summary.push(line);
-            }
-            else if (current) {
-                inBullet = this.collectBulletLine(line, current, { inBullet, outsideFence, afterBlank });
-            }
+            this.collectLine(line, state);
         }
         return collected;
+    }
+    static collectLine(line, state) {
+        const afterBlank = state.previousBlank;
+        state.previousBlank = !line.trim();
+        const outsideFence = this.outsideFence(line, state);
+        if (outsideFence && this.collectReference(line, state.references, state.number, state.logger)) {
+            state.previousBlank = afterBlank;
+            return;
+        }
+        const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);
+        if (heading) {
+            this.startSection(heading[1], state);
+        }
+        else if (state.current === state.summary) {
+            state.summary.push(line);
+        }
+        else if (state.current) {
+            state.inBullet = this.collectBulletLine(line, state.current, { inBullet: state.inBullet, outsideFence, afterBlank });
+        }
+    }
+    static outsideFence(line, state) {
+        const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+        if (marker && this.matchesFence(marker[1], state.fence)) {
+            state.fence = state.fence ? undefined : marker[1];
+        }
+        return !state.fence && !marker;
+    }
+    static matchesFence(marker, fence) {
+        return !fence || (marker[0] === fence[0] && marker.length >= fence.length);
+    }
+    static startSection(heading, state) {
+        state.current = state.sections.get(heading);
+        if (!state.current && heading !== 'Summary')
+            state.logger.warn(`PR #${state.number}: dropping unknown release-note section "${heading}".`);
+        state.inBullet = false;
     }
     static requireSections(collected) {
         if (!this.sections.some(section => collected.get(section)?.length)) {
@@ -40111,6 +40150,8 @@ const nothingToRelease = (reason) => ({
 });
 
 ;// CONCATENATED MODULE: ./Source/HandleVersion.ts
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 
 
@@ -40150,13 +40191,16 @@ class HandleVersion {
         return decision;
     }
     async decide() {
-        const manualBatch = this._context.eventName === 'workflow_dispatch' && this._inputs.version === '0.0.0';
-        if ((this._inputs.releaseWindow ?? 0) > 0 && (!this._inputs.version || manualBatch)) {
+        if (this.shouldBatch()) {
             return await this.decideFromPendingPullRequests();
         }
         if (this._inputs.version)
             return this.decideFromExplicitVersion(this._inputs.version);
         return await this.decideFromPullRequest();
+    }
+    shouldBatch() {
+        const manualBatch = this._context.eventName === 'workflow_dispatch' && this._inputs.version === '0.0.0';
+        return (this._inputs.releaseWindow ?? 0) > 0 && (!this._inputs.version || manualBatch);
     }
     async decideFromPendingPullRequests() {
         const eventPullRequest = this._context.payload.pull_request;
@@ -40170,44 +40214,51 @@ class HandleVersion {
             return await this.decideFromPullRequest();
         const { owner, repo } = this._context.repo;
         const included = AggregatedReleaseNotes.included(pending.pullRequests, `${owner}/${repo}`, this._inputs);
-        const pullRequests = included.map(pullRequest => pullRequest.number);
-        const pendingNumbers = pullRequests.map(number => `#${number}`).join(', ');
-        const skip = (reason, explanation) => {
-            this._logger.info(explanation);
-            return { ...nothingToRelease(reason), pullRequests, explanation };
-        };
         if (!included.length)
-            return skip('nothing-pending', 'Nothing is pending for release since the latest stable release tag.');
+            return this.skipPending(included, 'nothing-pending', 'Nothing is pending for release since the latest stable release tag.');
         this.warnForMissingLabels(included);
         const intents = included.flatMap(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs));
         const bump = ['major', 'minor', 'patch'].find(intent => intents.includes(intent));
         if (!bump)
-            return skip('no-label', `Pending PRs ${pendingNumbers}: none carries a release intent - nothing will be released.`);
+            return this.skipPending(included, 'no-label', `Pending PRs ${this.pendingNumbers(included)}: none carries a release intent - nothing will be released.`);
+        const held = this.holdPending(included, eventPullRequest);
+        if (held)
+            return held;
+        return await this.decideBatchVersion(included, bump, upper);
+    }
+    holdPending(included, eventPullRequest) {
         const manual = this._context.eventName === 'workflow_dispatch';
         const hotfix = included.some(pullRequest => this.isHotfix(pullRequest));
         const major = included.find(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs).includes('major'));
-        if (hotfix && major && !manual) {
-            const failureMessage = `A major change is pending (#${major.number}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
-            // Only the hotfix's own merge run fails; later runs keep the same range pending with a warning.
-            if (!this.isHotfixMerge(included, eventPullRequest)) {
-                this._logger.warn(failureMessage);
-                return skip('batched', failureMessage);
-            }
-            this._logger.error(failureMessage);
-            return { ...skip('error', failureMessage), failureMessage };
+        if (manual)
+            return undefined;
+        if (hotfix && major)
+            return this.holdHotfix(included, eventPullRequest, major.number);
+        if (!hotfix && !this.windowElapsed(included)) {
+            return this.skipPending(included, 'batched', this.waitingForWindow(included, this.pendingNumbers(included)));
         }
-        if (!manual && !hotfix && !this.windowElapsed(included)) {
-            return skip('batched', this.waitingForWindow(included, pendingNumbers));
+        return undefined;
+    }
+    holdHotfix(included, eventPullRequest, major) {
+        const failureMessage = `A major change is pending (#${major}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
+        // Only the hotfix's own merge run fails; later runs keep the same range pending with a warning.
+        if (!this.isHotfixMerge(included, eventPullRequest)) {
+            this._logger.warn(failureMessage);
+            return this.skipPending(included, 'batched', failureMessage);
         }
+        this._logger.error(failureMessage);
+        return { ...this.skipPending(included, 'error', failureMessage), failureMessage };
+    }
+    async decideBatchVersion(included, bump, upper) {
         if (!this._versions.nextVersionFor)
             throw new Error('Batch version selection is unavailable.');
         const versionInfo = await this._versions.nextVersionFor(bump, upper);
         if (!versionInfo.version) {
             const reason = versionInfo.reason ?? 'no-label';
             const explanation = reason === 'already-released'
-                ? `A release already exists for commit '${upper}' - pending PRs ${pendingNumbers} will not be released again.`
-                : `Pending PRs ${pendingNumbers} will not be released (reason: ${reason}).`;
-            return skip(reason, explanation);
+                ? `A release already exists for commit '${upper}' - pending PRs ${this.pendingNumbers(included)} will not be released again.`
+                : `Pending PRs ${this.pendingNumbers(included)} will not be released (reason: ${reason}).`;
+            return this.skipPending(included, reason, explanation);
         }
         return {
             shouldPublish: true,
@@ -40220,8 +40271,15 @@ class HandleVersion {
             previousVersion: versionInfo.previousVersion,
             targetCommitish: upper,
             reason: 'release',
-            pullRequests
+            pullRequests: included.map(pullRequest => pullRequest.number)
         };
+    }
+    skipPending(included, reason, explanation) {
+        this._logger.info(explanation);
+        return { ...nothingToRelease(reason), pullRequests: included.map(pullRequest => pullRequest.number), explanation };
+    }
+    pendingNumbers(included) {
+        return included.map(pullRequest => `#${pullRequest.number}`).join(', ');
     }
     warnForMissingLabels(pullRequests) {
         for (const pullRequest of pullRequests) {
@@ -40352,34 +40410,52 @@ class PendingPullRequests {
                 return this.fallback();
             limit = comparison.ahead_by;
         }
-        const commits = [];
-        let current = upper;
-        while (current && current !== lower && commits.length < limit) {
-            const { data: commit } = await this._octokit.repos.getCommit({ owner, repo, ref: current });
-            commits.push(commit);
-            current = commit.parents[0]?.sha;
-        }
+        const { commits, current } = await this.getFirstParentHistory(upper, lower, limit);
         if (current !== lower)
             return this.fallback(lower
                 ? undefined : 'The unreleased first-parent history exceeds the 250-commit limit');
         const defaultBranch = (await this._octokit.repos.get({ owner, repo })).data.default_branch;
+        return { pullRequests: await this.collectPullRequests(commits.reverse(), defaultBranch), fallback: false };
+    }
+    async getFirstParentHistory(upper, lower, limit) {
+        const { owner, repo } = this._context.repo;
+        const commits = [];
+        let current = upper;
+        while (this.canReadCommit(current, lower, commits.length, limit)) {
+            const { data: commit } = await this._octokit.repos.getCommit({ owner, repo, ref: current });
+            commits.push(commit);
+            current = commit.parents[0]?.sha;
+        }
+        return { commits, current };
+    }
+    canReadCommit(current, lower, count, limit) {
+        return !!current && current !== lower && count < limit;
+    }
+    async collectPullRequests(commits, defaultBranch) {
         const collected = new Map();
-        for (const commit of commits.reverse()) {
+        for (const commit of commits) {
             const number = commit.parents.length > 1
                 ? Number(commit.commit.message.match(/^Merge pull request #(\d+) from\b/)?.[1]) : 0;
-            const candidates = number
-                ? [(await this._octokit.pulls.get({ owner, repo, pull_number: number })).data]
-                : await this._octokit.paginate(this._octokit.repos.listPullRequestsAssociatedWithCommit, { owner, repo, commit_sha: commit.sha, per_page: 100 });
+            const candidates = await this.getCandidates(number, commit.sha);
             for (const pullRequest of candidates) {
-                const matches = isMerged(pullRequest) && pullRequest.base.ref === defaultBranch && pullRequest.merge_commit_sha === commit.sha;
-                if (number && (!matches || pullRequest.number !== number)) {
-                    throw new Error(`Pull request #${number} is not a matching merge into ${defaultBranch}.`);
-                }
-                if (matches)
+                if (this.matches(pullRequest, commit.sha, defaultBranch, number))
                     collected.set(pullRequest.number, pullRequest);
             }
         }
-        return { pullRequests: [...collected.values()], fallback: false };
+        return [...collected.values()];
+    }
+    async getCandidates(number, sha) {
+        const { owner, repo } = this._context.repo;
+        if (number)
+            return [(await this._octokit.pulls.get({ owner, repo, pull_number: number })).data];
+        return await this._octokit.paginate(this._octokit.repos.listPullRequestsAssociatedWithCommit, { owner, repo, commit_sha: sha, per_page: 100 });
+    }
+    matches(pullRequest, sha, defaultBranch, number) {
+        const matches = isMerged(pullRequest) && pullRequest.base.ref === defaultBranch && pullRequest.merge_commit_sha === sha;
+        if (number && (!matches || pullRequest.number !== number)) {
+            throw new Error(`Pull request #${number} is not a matching merge into ${defaultBranch}.`);
+        }
+        return matches;
     }
     fallback(message = 'The latest release tag is not on the first-parent history') {
         this._logger.warn(`${message}; falling back to single-PR behavior.`);
@@ -40580,6 +40656,8 @@ class WorkflowsDifferFromDefaultBranch extends Error {
 }
 
 ;// CONCATENATED MODULE: ./Source/Releases.ts
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 
 
@@ -40626,17 +40704,25 @@ class Releases {
         }
     }
     async getLatestReleaseCommit() {
-        const { owner, repo } = this._context.repo;
-        const releases = (await this.getAll()).filter(release => !release.draft && !release.prerelease);
-        const highest = this.highest(this.releaseVersions(releases));
-        let tag = highest && releases.find(release => semver_default().parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
-        if (!tag) {
-            const tags = (await this.getTags()).filter(tag => !semver_default().parse(this.stripTagPrefix(tag.name))?.prerelease.length);
-            const version = this.highest(this.tagVersions(tags));
-            tag = version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
-        }
+        let tag = await this.latestStableReleaseTag();
+        if (!tag)
+            tag = await this.latestStableVersionTag();
         if (!tag)
             return undefined;
+        return await this.resolveReleaseTag(tag);
+    }
+    async latestStableReleaseTag() {
+        const releases = (await this.getAll()).filter(release => !release.draft && !release.prerelease);
+        const highest = this.highest(this.releaseVersions(releases));
+        return highest && releases.find(release => semver_default().parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
+    }
+    async latestStableVersionTag() {
+        const tags = (await this.getTags()).filter(tag => !semver_default().parse(this.stripTagPrefix(tag.name))?.prerelease.length);
+        const version = this.highest(this.tagVersions(tags));
+        return version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
+    }
+    async resolveReleaseTag(tag) {
+        const { owner, repo } = this._context.repo;
         let object = (await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` })).data.object;
         for (let depth = 0; object.type === 'tag' && depth < 16; depth++) {
             object = (await this._octokit.git.getTag({ owner, repo, tag_sha: object.sha })).data.object;
@@ -40804,20 +40890,18 @@ class Releases {
         return this._all;
     }
     async listAll() {
-        const releases = await this._octokit.paginate(this._octokit.repos.listReleases, {
-            owner: this._context.repo.owner,
-            repo: this._context.repo.repo,
-            per_page: 100
-        });
-        return releases;
+        return this.list(this._octokit.repos.listReleases);
     }
     async getTags() {
-        const tags = await this._octokit.paginate(this._octokit.repos.listTags, {
+        return this.list(this._octokit.repos.listTags);
+    }
+    async list(endpoint) {
+        const items = await this._octokit.paginate(endpoint, {
             owner: this._context.repo.owner,
             repo: this._context.repo.repo,
             per_page: 100
         });
-        return tags;
+        return items;
     }
 }
 
