@@ -1,3 +1,6 @@
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 import { SemVer } from 'semver';
 
 import { AggregatedReleaseNotes } from './AggregatedReleaseNotes';
@@ -43,12 +46,16 @@ export class HandleVersion {
     }
 
     private async decide(): Promise<ReleaseDecision> {
-        const manualBatch = this._context.eventName === 'workflow_dispatch' && this._inputs.version === '0.0.0';
-        if ((this._inputs.releaseWindow ?? 0) > 0 && (!this._inputs.version || manualBatch)) {
+        if (this.shouldBatch()) {
             return await this.decideFromPendingPullRequests();
         }
         if (this._inputs.version) return this.decideFromExplicitVersion(this._inputs.version);
         return await this.decideFromPullRequest();
+    }
+
+    private shouldBatch(): boolean {
+        const manualBatch = this._context.eventName === 'workflow_dispatch' && this._inputs.version === '0.0.0';
+        return (this._inputs.releaseWindow ?? 0) > 0 && (!this._inputs.version || manualBatch);
     }
 
     private async decideFromPendingPullRequests(): Promise<ReleaseDecision> {
@@ -61,42 +68,49 @@ export class HandleVersion {
 
         const { owner, repo } = this._context.repo;
         const included = AggregatedReleaseNotes.included(pending.pullRequests, `${owner}/${repo}`, this._inputs);
-        const pullRequests = included.map(pullRequest => pullRequest.number);
-        const pendingNumbers = pullRequests.map(number => `#${number}`).join(', ');
-        const skip = (reason: Parameters<typeof nothingToRelease>[0], explanation: string): ReleaseDecision => {
-            this._logger.info(explanation);
-            return { ...nothingToRelease(reason), pullRequests, explanation };
-        };
-        if (!included.length) return skip('nothing-pending', 'Nothing is pending for release since the latest stable release tag.');
+        if (!included.length) return this.skipPending(included, 'nothing-pending', 'Nothing is pending for release since the latest stable release tag.');
         this.warnForMissingLabels(included);
         const intents = included.flatMap(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs));
         const bump = (['major', 'minor', 'patch'] as const).find(intent => intents.includes(intent));
-        if (!bump) return skip('no-label', `Pending PRs ${pendingNumbers}: none carries a release intent - nothing will be released.`);
+        if (!bump) return this.skipPending(included, 'no-label', `Pending PRs ${this.pendingNumbers(included)}: none carries a release intent - nothing will be released.`);
 
+        const held = this.holdPending(included, eventPullRequest);
+        if (held) return held;
+        return await this.decideBatchVersion(included, bump, upper);
+    }
+
+    private holdPending(included: PullRequest[], eventPullRequest: PullRequest | undefined): ReleaseDecision | undefined {
         const manual = this._context.eventName === 'workflow_dispatch';
         const hotfix = included.some(pullRequest => this.isHotfix(pullRequest));
         const major = included.find(pullRequest => AggregatedReleaseNotes.intents(pullRequest, this._inputs).includes('major'));
-        if (hotfix && major && !manual) {
-            const failureMessage = `A major change is pending (#${major.number}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
-            // Only the hotfix's own merge run fails; later runs keep the same range pending with a warning.
-            if (!this.isHotfixMerge(included, eventPullRequest)) {
-                this._logger.warn(failureMessage);
-                return skip('batched', failureMessage);
-            }
-            this._logger.error(failureMessage);
-            return { ...skip('error', failureMessage), failureMessage };
+        if (manual) return undefined;
+        if (hotfix && major) return this.holdHotfix(included, eventPullRequest, major.number);
+        if (!hotfix && !this.windowElapsed(included)) {
+            return this.skipPending(included, 'batched', this.waitingForWindow(included, this.pendingNumbers(included)));
         }
-        if (!manual && !hotfix && !this.windowElapsed(included)) {
-            return skip('batched', this.waitingForWindow(included, pendingNumbers));
+        return undefined;
+    }
+
+    private holdHotfix(included: PullRequest[], eventPullRequest: PullRequest | undefined, major: number): ReleaseDecision {
+        const failureMessage = `A major change is pending (#${major}); hotfix releases cannot include it. Run Publish manually (workflow_dispatch) to release it.`;
+        // Only the hotfix's own merge run fails; later runs keep the same range pending with a warning.
+        if (!this.isHotfixMerge(included, eventPullRequest)) {
+            this._logger.warn(failureMessage);
+            return this.skipPending(included, 'batched', failureMessage);
         }
+        this._logger.error(failureMessage);
+        return { ...this.skipPending(included, 'error', failureMessage), failureMessage };
+    }
+
+    private async decideBatchVersion(included: PullRequest[], bump: 'major' | 'minor' | 'patch', upper: string): Promise<ReleaseDecision> {
         if (!this._versions.nextVersionFor) throw new Error('Batch version selection is unavailable.');
         const versionInfo = await this._versions.nextVersionFor(bump, upper);
         if (!versionInfo.version) {
             const reason = versionInfo.reason ?? 'no-label';
             const explanation = reason === 'already-released'
-                ? `A release already exists for commit '${upper}' - pending PRs ${pendingNumbers} will not be released again.`
-                : `Pending PRs ${pendingNumbers} will not be released (reason: ${reason}).`;
-            return skip(reason, explanation);
+                ? `A release already exists for commit '${upper}' - pending PRs ${this.pendingNumbers(included)} will not be released again.`
+                : `Pending PRs ${this.pendingNumbers(included)} will not be released (reason: ${reason}).`;
+            return this.skipPending(included, reason, explanation);
         }
         return {
             shouldPublish: true,
@@ -109,8 +123,17 @@ export class HandleVersion {
             previousVersion: versionInfo.previousVersion,
             targetCommitish: upper,
             reason: 'release',
-            pullRequests
+            pullRequests: included.map(pullRequest => pullRequest.number)
         };
+    }
+
+    private skipPending(included: PullRequest[], reason: Parameters<typeof nothingToRelease>[0], explanation: string): ReleaseDecision {
+        this._logger.info(explanation);
+        return { ...nothingToRelease(reason), pullRequests: included.map(pullRequest => pullRequest.number), explanation };
+    }
+
+    private pendingNumbers(included: PullRequest[]): string {
+        return included.map(pullRequest => `#${pullRequest.number}`).join(', ');
     }
 
     private warnForMissingLabels(pullRequests: PullRequest[]): void {
