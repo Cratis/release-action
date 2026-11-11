@@ -29,36 +29,58 @@ export class PendingPullRequests implements IPendingPullRequests {
             limit = comparison.ahead_by;
         }
 
+        const { commits, current } = await this.getFirstParentHistory(upper, lower, limit);
+        if (current !== lower) return this.fallback(lower
+            ? undefined : 'The unreleased first-parent history exceeds the 250-commit limit');
+
+        const defaultBranch = (await this._octokit.repos.get({ owner, repo })).data.default_branch;
+        return { pullRequests: await this.collectPullRequests(commits.reverse(), defaultBranch), fallback: false };
+    }
+
+    private async getFirstParentHistory(upper: string, lower: string | undefined, limit: number) {
+        const { owner, repo } = this._context.repo;
         const commits: Awaited<ReturnType<Octokit['repos']['getCommit']>>['data'][] = [];
         let current: string | undefined = upper;
-        while (current && current !== lower && commits.length < limit) {
+        while (this.canReadCommit(current, lower, commits.length, limit)) {
             const { data: commit }: Awaited<ReturnType<Octokit['repos']['getCommit']>> =
                 await this._octokit.repos.getCommit({ owner, repo, ref: current });
             commits.push(commit);
             current = commit.parents[0]?.sha;
         }
 
-        if (current !== lower) return this.fallback(lower
-            ? undefined : 'The unreleased first-parent history exceeds the 250-commit limit');
+        return { commits, current };
+    }
 
-        const defaultBranch = (await this._octokit.repos.get({ owner, repo })).data.default_branch;
+    private canReadCommit(current: string | undefined, lower: string | undefined, count: number, limit: number): current is string {
+        return !!current && current !== lower && count < limit;
+    }
+
+    private async collectPullRequests(commits: Awaited<ReturnType<Octokit['repos']['getCommit']>>['data'][], defaultBranch: string) {
         const collected = new Map<number, PullRequest>();
-        for (const commit of commits.reverse()) {
+        for (const commit of commits) {
             const number = commit.parents.length > 1
                 ? Number(commit.commit.message.match(/^Merge pull request #(\d+) from\b/)?.[1]) : 0;
-            const candidates = number
-                ? [(await this._octokit.pulls.get({ owner, repo, pull_number: number })).data as unknown as PullRequest]
-                : await this._octokit.paginate(this._octokit.repos.listPullRequestsAssociatedWithCommit,
-                    { owner, repo, commit_sha: commit.sha, per_page: 100 }) as unknown as PullRequest[];
+            const candidates = await this.getCandidates(number, commit.sha);
             for (const pullRequest of candidates) {
-                const matches = isMerged(pullRequest) && pullRequest.base.ref === defaultBranch && pullRequest.merge_commit_sha === commit.sha;
-                if (number && (!matches || pullRequest.number !== number)) {
-                    throw new Error(`Pull request #${number} is not a matching merge into ${defaultBranch}.`);
-                }
-                if (matches) collected.set(pullRequest.number, pullRequest);
+                if (this.matches(pullRequest, commit.sha, defaultBranch, number)) collected.set(pullRequest.number, pullRequest);
             }
         }
-        return { pullRequests: [...collected.values()], fallback: false };
+        return [...collected.values()];
+    }
+
+    private async getCandidates(number: number, sha: string): Promise<PullRequest[]> {
+        const { owner, repo } = this._context.repo;
+        if (number) return [(await this._octokit.pulls.get({ owner, repo, pull_number: number })).data as unknown as PullRequest];
+        return await this._octokit.paginate(this._octokit.repos.listPullRequestsAssociatedWithCommit,
+            { owner, repo, commit_sha: sha, per_page: 100 }) as unknown as PullRequest[];
+    }
+
+    private matches(pullRequest: PullRequest, sha: string, defaultBranch: string, number: number): boolean {
+        const matches = isMerged(pullRequest) && pullRequest.base.ref === defaultBranch && pullRequest.merge_commit_sha === sha;
+        if (number && (!matches || pullRequest.number !== number)) {
+            throw new Error(`Pull request #${number} is not a matching merge into ${defaultBranch}.`);
+        }
+        return matches;
     }
 
     private fallback(message = 'The latest release tag is not on the first-parent history'): { pullRequests: PullRequest[]; fallback: boolean } {

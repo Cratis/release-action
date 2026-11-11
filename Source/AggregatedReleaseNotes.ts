@@ -5,6 +5,7 @@ import { ILogger } from './ILogger';
 import { IReleaseOptions } from './IReleaseOptions';
 import { PullRequest, isFromDependabot } from './PullRequest';
 import { ReleaseNotes } from './ReleaseNotes';
+import { ReleaseNoteCollection } from './ReleaseNoteCollection';
 
 /** Keeps the net effect of revert chains and merges whole release-note bullets, never their issue references. */
 export class AggregatedReleaseNotes {
@@ -33,11 +34,7 @@ export class AggregatedReleaseNotes {
         const effects = new Map<number, { root: number; sign: number }>();
         const totals = new Map<number, number>();
         for (const [index, pullRequest] of pullRequests.entries()) {
-            const reference = (pullRequest.body ?? '').match(/^Reverts ([\w.-]+\/[\w.-]+)#(\d+)\.?\s*$/m);
-            const revertedSha = (pullRequest.body ?? '').match(/This reverts commit ([0-9a-f]{40})\b/i)?.[1];
-            const original = pullRequests.slice(0, index).find(candidate =>
-                (reference && reference[1].toLowerCase() === repository.toLowerCase() && candidate.number === Number(reference[2])) ||
-                (revertedSha && candidate.merge_commit_sha === revertedSha));
+            const original = this.findReverted(pullRequests.slice(0, index), pullRequest, repository);
             const prior = original && effects.get(original.number);
             const effect = prior ? { root: prior.root, sign: -prior.sign } : { root: pullRequest.number, sign: 1 };
             effects.set(pullRequest.number, effect);
@@ -45,6 +42,14 @@ export class AggregatedReleaseNotes {
         }
         return pullRequests.filter(pullRequest => effects.get(pullRequest.number)?.root === pullRequest.number &&
             (totals.get(pullRequest.number) ?? 0) > 0);
+    }
+
+    private static findReverted(prior: PullRequest[], pullRequest: PullRequest, repository: string): PullRequest | undefined {
+        const reference = (pullRequest.body ?? '').match(/^Reverts ([\w.-]+\/[\w.-]+)#(\d+)\.?\s*$/m);
+        const revertedSha = (pullRequest.body ?? '').match(/This reverts commit ([0-9a-f]{40})\b/i)?.[1];
+        return prior.find(candidate =>
+            (reference && reference[1].toLowerCase() === repository.toLowerCase() && candidate.number === Number(reference[2])) ||
+            (revertedSha && candidate.merge_commit_sha === revertedSha));
     }
 
     static merge(pullRequests: PullRequest[], logger: ILogger): string {
@@ -69,34 +74,50 @@ export class AggregatedReleaseNotes {
         const collected = new Map(this.sections.map(section => [section, [] as string[]]));
         const summary: string[] = [];
         collected.set('Summary', summary);
-        let current: string[] | undefined = summary;
-        let fence: string | undefined;
-        let inBullet = false;
-        let previousBlank = false;
+        const state: ReleaseNoteCollection = {
+            sections: collected, summary, current: summary, fence: undefined, inBullet: false, previousBlank: false,
+            references, number: pullRequest.number, logger
+        };
         for (const line of ReleaseNotes.withoutComments(pullRequest.body ?? '').split('\n')) {
-            const afterBlank: boolean = previousBlank;
-            previousBlank = !line.trim();
-            const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
-            if (marker && (!fence || (marker[1][0] === fence[0] && marker[1].length >= fence.length))) {
-                fence = fence ? undefined : marker[1];
-            }
-            const outsideFence = !fence && !marker;
-            if (outsideFence && this.collectReference(line, references, pullRequest.number, logger)) {
-                previousBlank = afterBlank;
-                continue;
-            }
-            const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);
-            if (heading) {
-                current = collected.get(heading[1]);
-                if (!current && heading[1] !== 'Summary') logger.warn(`PR #${pullRequest.number}: dropping unknown release-note section "${heading[1]}".`);
-                inBullet = false;
-            } else if (current === summary) {
-                summary.push(line);
-            } else if (current) {
-                inBullet = this.collectBulletLine(line, current, { inBullet, outsideFence, afterBlank });
-            }
+            this.collectLine(line, state);
         }
         return collected;
+    }
+
+    private static collectLine(line: string, state: ReleaseNoteCollection): void {
+        const afterBlank = state.previousBlank;
+        state.previousBlank = !line.trim();
+        const outsideFence = this.outsideFence(line, state);
+        if (outsideFence && this.collectReference(line, state.references, state.number, state.logger)) {
+            state.previousBlank = afterBlank;
+            return;
+        }
+        const heading = outsideFence && line.match(/^##\s+(.+?)\s*#*\s*$/);
+        if (heading) {
+            this.startSection(heading[1], state);
+        } else if (state.current === state.summary) {
+            state.summary.push(line);
+        } else if (state.current) {
+            state.inBullet = this.collectBulletLine(line, state.current, { inBullet: state.inBullet, outsideFence, afterBlank });
+        }
+    }
+
+    private static outsideFence(line: string, state: ReleaseNoteCollection): boolean {
+        const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+        if (marker && this.matchesFence(marker[1], state.fence)) {
+            state.fence = state.fence ? undefined : marker[1];
+        }
+        return !state.fence && !marker;
+    }
+
+    private static matchesFence(marker: string, fence: string | undefined): boolean {
+        return !fence || (marker[0] === fence[0] && marker.length >= fence.length);
+    }
+
+    private static startSection(heading: string, state: ReleaseNoteCollection): void {
+        state.current = state.sections.get(heading);
+        if (!state.current && heading !== 'Summary') state.logger.warn(`PR #${state.number}: dropping unknown release-note section "${heading}".`);
+        state.inBullet = false;
     }
 
     private static requireSections(collected: Map<string, string[]>): void {

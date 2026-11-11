@@ -1,3 +1,6 @@
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 import { Octokit } from '@octokit/rest';
 import semver, { SemVer } from 'semver';
 
@@ -65,16 +68,26 @@ export class Releases implements IReleases {
     }
 
     async getLatestReleaseCommit(): Promise<string | undefined> {
-        const { owner, repo } = this._context.repo;
+        let tag = await this.latestStableReleaseTag();
+        if (!tag) tag = await this.latestStableVersionTag();
+        if (!tag) return undefined;
+        return await this.resolveReleaseTag(tag);
+    }
+
+    private async latestStableReleaseTag(): Promise<string | undefined> {
         const releases = (await this.getAll()).filter(release => !release.draft && !release.prerelease);
         const highest = this.highest(this.releaseVersions(releases));
-        let tag = highest && releases.find(release => semver.parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
-        if (!tag) {
-            const tags = (await this.getTags()).filter(tag => !semver.parse(this.stripTagPrefix(tag.name))?.prerelease.length);
-            const version = this.highest(this.tagVersions(tags));
-            tag = version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
-        }
-        if (!tag) return undefined;
+        return highest && releases.find(release => semver.parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
+    }
+
+    private async latestStableVersionTag(): Promise<string | undefined> {
+        const tags = (await this.getTags()).filter(tag => !semver.parse(this.stripTagPrefix(tag.name))?.prerelease.length);
+        const version = this.highest(this.tagVersions(tags));
+        return version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
+    }
+
+    private async resolveReleaseTag(tag: string): Promise<string> {
+        const { owner, repo } = this._context.repo;
         let object = (await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` })).data.object;
         for (let depth = 0; object.type === 'tag' && depth < 16; depth++) {
             object = (await this._octokit.git.getTag({ owner, repo, tag_sha: object.sha })).data.object;
@@ -252,26 +265,19 @@ export class Releases implements IReleases {
     }
 
     private async listAll(): Promise<ExistingRelease[]> {
-        const releases = await this._octokit.paginate(
-            this._octokit.repos.listReleases,
-            {
-                owner: this._context.repo.owner,
-                repo: this._context.repo.repo,
-                per_page: 100
-            });
-
-        return releases as unknown as ExistingRelease[];
+        return this.list<ExistingRelease>(this._octokit.repos.listReleases);
     }
 
     private async getTags(): Promise<ExistingTag[]> {
-        const tags = await this._octokit.paginate(
-            this._octokit.repos.listTags,
-            {
-                owner: this._context.repo.owner,
-                repo: this._context.repo.repo,
-                per_page: 100
-            });
+        return this.list<ExistingTag>(this._octokit.repos.listTags);
+    }
 
-        return tags as unknown as ExistingTag[];
+    private async list<T>(endpoint: Octokit['repos']['listReleases'] | Octokit['repos']['listTags']): Promise<T[]> {
+        const items = await this._octokit.paginate(endpoint, {
+            owner: this._context.repo.owner,
+            repo: this._context.repo.repo,
+            per_page: 100
+        });
+        return items as unknown as T[];
     }
 }

@@ -39616,6 +39616,8 @@ const dist_src_Octokit = Octokit.plugin(requestLog, legacyRestEndpointMethods, p
 
 
 ;// CONCATENATED MODULE: ./Source/ReleaseNotes.ts
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 /**
  * Turns the notes a release is cut with - a pull request description, or the notes a manual run was given - into
  * the body that is published.
@@ -39677,59 +39679,59 @@ class ReleaseNotes {
      * The ranges of the notes - start inclusive, end exclusive - one reading of them removes.
      */
     static removalsIn(notes, outdentedFenceCloses) {
-        const removals = [];
-        let published = '';
-        let index = 0;
-        // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
-        // full of unclosed openings slow to read.
-        let unclosedFrom = notes.length;
-        // The reading only moves forward, so the start of the current line is found by moving forward with it -
-        // searching back from every code span would make a long line full of them slow to read.
-        let lineStart = 0;
-        let lineScannedTo = 0;
-        // A fence that found no closing line before the end of the notes will not find one from further down either;
-        // remembering that keeps notes full of stray fences from being read again and again to the end.
-        const unclosedFences = new Set();
-        const lineStartOf = (position) => {
-            for (; lineScannedTo < position; lineScannedTo++) {
-                if (notes[lineScannedTo] === '\n')
-                    lineStart = lineScannedTo + 1;
-            }
-            return lineStart;
+        const reading = {
+            notes, index: 0, published: '', unclosedFrom: notes.length, removals: [], lineStart: 0, lineScannedTo: 0,
+            unclosedFences: new Set(), outdentedFenceCloses
         };
-        while (index < notes.length) {
-            const end = ReleaseNotes.endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses);
-            if (end > index) {
-                published += notes.slice(index, end);
-                index = end;
+        while (reading.index < notes.length) {
+            const end = ReleaseNotes.endOfCodeAt(reading);
+            if (end > reading.index) {
+                reading.published += notes.slice(reading.index, end);
+                reading.index = end;
                 continue;
             }
-            if (index < unclosedFrom && notes.startsWith(ReleaseNotes.commentStart, index)) {
-                const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
-                if (close === -1) {
-                    unclosedFrom = index;
-                }
-                else {
-                    const removed = ReleaseNotes.removeComment(notes, published, close + ReleaseNotes.commentEnd.length);
-                    removals.push([removed.withItsLines ? lineStartOf(index) : index, removed.next]);
-                    published = removed.published;
-                    index = removed.next;
-                    continue;
-                }
-            }
-            published += notes[index];
-            index++;
+            if (ReleaseNotes.removeCommentAt(reading))
+                continue;
+            reading.published += notes[reading.index];
+            reading.index++;
         }
-        return removals;
+        return reading.removals;
+    }
+    static removeCommentAt(reading) {
+        const { notes, index } = reading;
+        if (index >= reading.unclosedFrom || !notes.startsWith(ReleaseNotes.commentStart, index))
+            return false;
+        const close = notes.indexOf(ReleaseNotes.commentEnd, index + 2);
+        // Once no `-->` follows an opening, none follows a later one either - looking again would only make notes
+        // full of unclosed openings slow to read.
+        if (close === -1) {
+            reading.unclosedFrom = index;
+            return false;
+        }
+        const removed = ReleaseNotes.removeComment(notes, reading.published, close + ReleaseNotes.commentEnd.length);
+        reading.removals.push([removed.withItsLines ? ReleaseNotes.lineStartOf(reading, index) : index, removed.next]);
+        reading.published = removed.published;
+        reading.index = removed.next;
+        return true;
+    }
+    // The reading only moves forward, so the start of the current line is found by moving forward with it -
+    // searching back from every code span would make a long line full of them slow to read.
+    static lineStartOf(reading, position) {
+        for (; reading.lineScannedTo < position; reading.lineScannedTo++) {
+            if (reading.notes[reading.lineScannedTo] === '\n')
+                reading.lineStart = reading.lineScannedTo + 1;
+        }
+        return reading.lineStart;
     }
     /**
      * Where the code - or the escaped character - starting at an index ends, or the index itself when nothing that
      * must be kept verbatim starts there.
      */
-    static endOfCodeAt(notes, index, lineStartOf, unclosedFences, outdentedFenceCloses) {
+    static endOfCodeAt(reading) {
+        const { notes, index } = reading;
         const atLineStart = index === 0 || notes[index - 1] === '\n';
         if (atLineStart) {
-            const fenceEnd = ReleaseNotes.endOfFencedBlock(notes, index, unclosedFences, outdentedFenceCloses);
+            const fenceEnd = ReleaseNotes.endOfFencedBlock(reading);
             if (fenceEnd !== undefined) {
                 return fenceEnd;
             }
@@ -39739,7 +39741,7 @@ class ReleaseNotes {
             return index + 2;
         }
         if (notes[index] === '`') {
-            return ReleaseNotes.endOfCodeSpan(notes, index, lineStartOf(index));
+            return ReleaseNotes.endOfCodeSpan(notes, index, ReleaseNotes.lineStartOf(reading, index));
         }
         return index;
     }
@@ -39771,7 +39773,20 @@ class ReleaseNotes {
      * fence is read as plain text instead, its own backticks included. The worst that costs is a comment shown
      * inside that broken block.
      */
-    static endOfFencedBlock(notes, lineStart, unclosedFences, outdentedFenceCloses) {
+    static endOfFencedBlock(reading) {
+        const opening = ReleaseNotes.openingFence(reading.notes, reading.index);
+        if (!opening)
+            return undefined;
+        // A fence that found no closing line will not find one from further down either.
+        if (reading.unclosedFences.has(opening.kind))
+            return opening.afterOpening;
+        const end = ReleaseNotes.findFenceEnd(reading.notes, opening, reading.outdentedFenceCloses);
+        if (end !== undefined)
+            return end;
+        reading.unclosedFences.add(opening.kind);
+        return opening.afterOpening;
+    }
+    static openingFence(notes, lineStart) {
         const firstLineEnd = ReleaseNotes.endOfLine(notes, lineStart);
         const quoted = ReleaseNotes.quotesAt(notes, lineStart, firstLineEnd);
         let rest = ReleaseNotes.lineAt(notes, quoted.end, firstLineEnd);
@@ -39789,34 +39804,35 @@ class ReleaseNotes {
         // An indented fence sits in a list item - opened on the marker's line or on a continuation line of the
         // item - and the item's content starts where the fence does.
         const contentColumn = ReleaseNotes.columnsOf(markers + opening[1]);
-        const kind = `${fence}:${quoted.count}:${contentColumn}`;
-        if (unclosedFences.has(kind)) {
-            return afterOpeningFence;
-        }
-        const closing = new RegExp(`^([ \\t]*)${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`);
-        let line = ReleaseNotes.startOfNextLine(notes, firstLineEnd);
+        return {
+            firstLineEnd, depth: quoted.count, contentColumn, afterOpening: afterOpeningFence,
+            kind: `${fence}:${quoted.count}:${contentColumn}`,
+            closing: new RegExp(`^([ \\t]*)${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`)
+        };
+    }
+    static findFenceEnd(notes, opening, outdentedFenceCloses) {
+        let line = ReleaseNotes.startOfNextLine(notes, opening.firstLineEnd);
         while (line < notes.length) {
             const lineEnd = ReleaseNotes.endOfLine(notes, line);
-            const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, quoted.count);
-            if (inside.count < quoted.count) {
+            const inside = ReleaseNotes.quotesAt(notes, line, lineEnd, opening.depth);
+            if (inside.count < opening.depth)
                 return line;
-            }
             const text = ReleaseNotes.lineAt(notes, inside.end, lineEnd);
-            const closed = closing.exec(text);
-            if (closed) {
-                const columns = ReleaseNotes.columnsOf(closed[1]);
-                const outdented = columns < contentColumn;
-                if (columns <= contentColumn + 3 && (!outdented || outdentedFenceCloses)) {
-                    return ReleaseNotes.startOfNextLine(notes, lineEnd);
-                }
+            if (ReleaseNotes.closesFence(text, opening, outdentedFenceCloses)) {
+                return ReleaseNotes.startOfNextLine(notes, lineEnd);
             }
-            if (ReleaseNotes.leavesListItem(text, contentColumn)) {
+            if (ReleaseNotes.leavesListItem(text, opening.contentColumn))
                 return line;
-            }
             line = ReleaseNotes.startOfNextLine(notes, lineEnd);
         }
-        unclosedFences.add(kind);
-        return afterOpeningFence;
+        return undefined;
+    }
+    static closesFence(text, opening, outdentedFenceCloses) {
+        const closed = opening.closing.exec(text);
+        if (!closed)
+            return false;
+        const columns = ReleaseNotes.columnsOf(closed[1]);
+        return columns <= opening.contentColumn + 3 && (columns >= opening.contentColumn || outdentedFenceCloses);
     }
     /**
      * Whether a line leaves the list item holding a fence - a line that is not blank and is indented less than the
@@ -39887,21 +39903,29 @@ class ReleaseNotes {
         let count = 0;
         let end = lineStart;
         while (count < maximum) {
-            let position = end;
-            while (position < lineEnd && position - end < 3 && notes[position] === ' ') {
-                position++;
-            }
+            let position = ReleaseNotes.afterQuoteIndentation(notes, end, lineEnd);
             if (position >= lineEnd || notes[position] !== '>') {
                 break;
             }
             position++;
-            if (position < lineEnd && (notes[position] === ' ' || notes[position] === '\t')) {
+            if (ReleaseNotes.hasQuoteWhitespace(notes, position, lineEnd))
                 position++;
-            }
             count++;
             end = position;
         }
         return { count, end };
+    }
+    static afterQuoteIndentation(notes, start, lineEnd) {
+        let position = start;
+        while (position < lineEnd && notes[position] === ' ') {
+            if (position - start >= 3)
+                break;
+            position++;
+        }
+        return position;
+    }
+    static hasQuoteWhitespace(notes, position, lineEnd) {
+        return position < lineEnd && (notes[position] === ' ' || notes[position] === '\t');
     }
     /**
      * The text of a line, without the carriage return of a Windows line ending.
@@ -40186,6 +40210,8 @@ class WorkflowsDifferFromDefaultBranch extends Error {
 }
 
 ;// CONCATENATED MODULE: ./Source/Releases.ts
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 
 
@@ -40232,17 +40258,25 @@ class Releases {
         }
     }
     async getLatestReleaseCommit() {
-        const { owner, repo } = this._context.repo;
-        const releases = (await this.getAll()).filter(release => !release.draft && !release.prerelease);
-        const highest = this.highest(this.releaseVersions(releases));
-        let tag = highest && releases.find(release => semver_default().parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
-        if (!tag) {
-            const tags = (await this.getTags()).filter(tag => !semver_default().parse(this.stripTagPrefix(tag.name))?.prerelease.length);
-            const version = this.highest(this.tagVersions(tags));
-            tag = version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
-        }
+        let tag = await this.latestStableReleaseTag();
+        if (!tag)
+            tag = await this.latestStableVersionTag();
         if (!tag)
             return undefined;
+        return await this.resolveReleaseTag(tag);
+    }
+    async latestStableReleaseTag() {
+        const releases = (await this.getAll()).filter(release => !release.draft && !release.prerelease);
+        const highest = this.highest(this.releaseVersions(releases));
+        return highest && releases.find(release => semver_default().parse(this.stripTagPrefix(release.tag_name))?.version === highest.version)?.tag_name;
+    }
+    async latestStableVersionTag() {
+        const tags = (await this.getTags()).filter(tag => !semver_default().parse(this.stripTagPrefix(tag.name))?.prerelease.length);
+        const version = this.highest(this.tagVersions(tags));
+        return version && tags.find(candidate => this.coerceTag(candidate.name)?.version === version.version)?.name;
+    }
+    async resolveReleaseTag(tag) {
+        const { owner, repo } = this._context.repo;
         let object = (await this._octokit.git.getRef({ owner, repo, ref: `tags/${tag}` })).data.object;
         for (let depth = 0; object.type === 'tag' && depth < 16; depth++) {
             object = (await this._octokit.git.getTag({ owner, repo, tag_sha: object.sha })).data.object;
@@ -40410,20 +40444,18 @@ class Releases {
         return this._all;
     }
     async listAll() {
-        const releases = await this._octokit.paginate(this._octokit.repos.listReleases, {
-            owner: this._context.repo.owner,
-            repo: this._context.repo.repo,
-            per_page: 100
-        });
-        return releases;
+        return this.list(this._octokit.repos.listReleases);
     }
     async getTags() {
-        const tags = await this._octokit.paginate(this._octokit.repos.listTags, {
+        return this.list(this._octokit.repos.listTags);
+    }
+    async list(endpoint) {
+        const items = await this._octokit.paginate(endpoint, {
             owner: this._context.repo.owner,
             repo: this._context.repo.repo,
             per_page: 100
         });
-        return tags;
+        return items;
     }
 }
 
