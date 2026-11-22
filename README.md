@@ -212,6 +212,27 @@ inside a comment closes nothing.
 An issue that is already closed is left exactly as it was, and a number that turns out to be a pull request is
 skipped - a release does not close a pull request.
 
+## Showing the release notes in your application
+
+The release notes are published as the GitHub release, which is where the action's job ends. An application that wants to show them to its own users - a "what's new" dialog, a releases page, an unread badge - keeps them in the repository and embeds them in the build. [`playbill-capture`](https://github.com/Cratis/Showrunner/blob/main/.github/actions/playbill-capture/README.md), from [Cratis Showrunner](https://github.com/Cratis/Showrunner), is the companion action for that. Run it after this one, with the version this one decided:
+
+```yaml
+- name: Release
+  id: release
+  uses: cratis/release-action@v1
+
+- name: Capture release notes
+  if: steps.release.outputs.should-publish == 'true'
+  uses: Cratis/Showrunner/.github/actions/playbill-capture@v2.19.0
+  with:
+    version: ${{ steps.release.outputs.version }}
+    body: ${{ github.event.pull_request.body }}
+    output: Source/Host/ReleaseNotes
+    commit: true
+```
+
+It writes the notes, and the images they refer to, to `<output>/<version>/<version>.md`, and can commit them. The `Cratis.Showrunner.Playbill` package then embeds that folder and serves it, and its React components show it. A repository that releases from several merged pull requests at once can aggregate them first. Everything is described in the [Playbill documentation](https://github.com/Cratis/Showrunner/blob/main/Documentation/Playbill/index.md).
+
 ## Choosing a trigger
 
 Two triggers work, and the difference matters for repositories that accept **fork** pull requests:
